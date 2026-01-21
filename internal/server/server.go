@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"flight2/internal/data"
@@ -62,9 +63,22 @@ func (s *Server) log(format string, args ...interface{}) {
 
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/env", s.handleDebugEnv)
 	mux.HandleFunc("/credentials", s.handleCredentials)
 	mux.HandleFunc("/", s.handleBanquet)
 	return mux
+}
+
+// handleDebugEnv shows environment variables sorted.
+// SECURITY WARNING: This endpoint exposes all environment variables, which may contain sensitive secrets.
+// It should only be enabled in trusted environments or for debugging purposes.
+func (s *Server) handleDebugEnv(w http.ResponseWriter, r *http.Request) {
+	env := os.Environ()
+	sort.Strings(env)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	for _, e := range env {
+		fmt.Fprintln(w, e)
+	}
 }
 
 // handleCredentials stores cloud credentials and returns an alias.

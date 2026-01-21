@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"flight2/internal/data"
@@ -24,16 +25,18 @@ type Server struct {
 	secrets     *secrets.Service
 	tableWriter *sqliter.TableWriter
 	templateDir string
+	serveFolder string
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string) *Server {
+func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string) *Server {
 	t := sqliter.LoadTemplates(templateDir)
 	return &Server{
 		dataManager: dm,
 		secrets:     ss,
 		tableWriter: sqliter.NewTableWriter(t),
 		templateDir: templateDir,
+		serveFolder: serveFolder,
 	}
 }
 
@@ -77,10 +80,45 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if we have source path
-	if bq.DataSetPath == "" || bq.DataSetPath == "/" {
+	sourcePath := bq.DataSetPath
+
+	// Handle ServeFolder if configured and path is root
+	if (sourcePath == "" || sourcePath == "/") && s.serveFolder != "" {
+		sourcePath = s.serveFolder
+	} else if sourcePath == "" || sourcePath == "/" {
 		http.Error(w, "Welcome to Flight2! Usage: /<alias>@<source_url>/<query>", http.StatusOK)
 		return
+	} else {
+		// Existing logic for cleaning sourcePath
+		sourcePath = strings.TrimPrefix(sourcePath, "/")
+		if bq.Host != "" {
+			sourcePath = bq.Host + "/" + sourcePath
+		}
+
+		// Workaround for banquet stripping scheme from path-based URLs
+		// If request path contains "http:" or "https:" and sourcePath doesn't contain it.
+		// And we don't have an alias (which would handle authentication).
+		if (strings.Contains(r.URL.Path, "https:/") || strings.Contains(r.URL.Path, "http:/")) && !strings.Contains(sourcePath, "http") {
+			if bq.User == nil {
+				// Use the raw request path (trimmed) as the source path
+				// This might include the table, but since banquet failed to preserve scheme,
+				// we prioritize getting the source right.
+				// We assume the whole path is the source URL.
+				sourcePath = strings.TrimPrefix(r.URL.Path, "/")
+			}
+		}
+
+		// If serveFolder is set, and we don't have an alias or remote scheme, assume local path
+		if s.serveFolder != "" && bq.User == nil && !strings.Contains(sourcePath, "://") && !strings.HasPrefix(sourcePath, "http") {
+			joined := filepath.Join(s.serveFolder, sourcePath)
+			// Prevent directory traversal
+			rel, err := filepath.Rel(s.serveFolder, joined)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+			sourcePath = joined
+		}
 	}
 
 	// Extract alias from userinfo
@@ -98,59 +136,11 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		}
 		creds = c
 	} else {
-		// Allow public access if no alias provided? Or error?
-		// Prompt implies "use the userinfo... to retrieve stored credentials".
-		// If empty, maybe assume local file system or no auth?
-		// Let's allow empty creds (might work for local files if allowed)
 		creds = make(map[string]interface{})
-	}
-
-	// The DataSetPath in banquet includes the host part if it's a URL.
-	// Wait, banquet parsing:
-	// If input is `http://localhost:8080/myalias@s3/bucket/file.csv/query`
-	// Banquet parses this.
-	// Verify what banquet does with `ParseNested`.
-	// Assuming `r.URL.String()` is passed, it parses the request URL.
-
-	// `banquet` treats the request path as the dataset path + query.
-	// But we are using the banquet URL format *in* the request path?
-	// "Use Banquet urls to parse a request url for a source and query."
-	// If the request is `GET /myalias@s3.amazonaws.com/bucket/file.csv`,
-	// `r.URL.String()` is `/myalias@s3.amazonaws.com/bucket/file.csv`.
-	// `banquet.ParseNested` parses the path.
-
-	// We need to reconstruct the "source URL" from the parsed banquet object.
-	// Banquet splits it into Source (DataSetPath) and Query (Table/etc).
-	// Note: `banquet` might not preserve the scheme if it's not part of the path.
-	// The user prompt says: "Use Banquet urls to parse a request url for a source and query."
-	// If I pass `/alias@host/path`, banquet parses userinfo=`alias`, host=`host`, path=`path`.
-
-	// We need to construct the `sourcePath` for `internal/data`.
-	// It should probably be something `rclone` understands.
-	// If creds["type"] is "s3", rclone expects just the bucket/path, or maybe `s3:bucket/path`?
-	// In `internal/source`, we use `regInfo.NewFs`. The parent path is passed.
-	// If we use `fs.Find(type)`, we get a backend.
-	// Then `NewFs` creates a filesystem.
-	// If the source is `s3.amazonaws.com/bucket/file.csv`, we need to handle the host.
-
-	// Rclone config map handles the type.
-	// If creds["type"] == "s3", we just need the path inside the bucket?
-	// Or if creds["type"] == "http", we need the URL.
-
-	// Let's assume the `bq.DataSetPath` is the path we want to access on the remote.
-	// However, `banquet` might have stripped the "host" if it parsed it as a URL?
-	// Let's look at `bq.DataSetPath`.
-
-	sourcePath := bq.DataSetPath
-	// If banquet parsed "host", we might need to prepend it if it's relevant (e.g. http/ftp).
-	// But for cloud providers (s3, gcs), usually the bucket is the first part of the path or the host.
-
-	// Clean up leading slash
-	sourcePath = strings.TrimPrefix(sourcePath, "/")
-
-	// If we have a host in banquet, prepend it?
-	if bq.Host != "" {
-		sourcePath = bq.Host + "/" + sourcePath
+		// If we are serving from local folder, inject local type
+		if s.serveFolder != "" && strings.HasPrefix(sourcePath, s.serveFolder) {
+			creds["type"] = "local"
+		}
 	}
 
 	// Fetch and convert

@@ -1,0 +1,32 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Build the web command
+cmd = "go build -o ./bin/ ./..."
+# Binary file to run
+bin = "./bin/server"
+# Customize binary execution (optional) to ensure it runs from root
+full_bin = "FLIGHT_HOME=. ./bin/server"
+# Watch these file extensions
+include_ext = ["go", "tpl", "tmpl", "html", "css", "js", "json"]
+# Ignore these directories
+exclude_dir = ["assets", "tmp", "vendor", "test_output", ".git", ".idea", "logs"]
+# Delay in ms after file change
+delay = 1000
+# Stop runner if build errors occur
+stop_on_error = true
+# Log file
+log = "logs/air_errors.log"
+
+[log]
+time = true
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true

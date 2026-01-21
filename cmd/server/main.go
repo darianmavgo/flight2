@@ -17,21 +17,21 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Could not load config.hcl: %v", err)
 		// Fallback to defaults provided by LoadConfig internally if file missing,
-        // but here err means file existed but bad parse or other error.
-        // If file missing, LoadConfig currently returns defaults.
-        // Let's assume we proceed if possible, but LoadConfig returns defaults on NotExist.
-        // If it's a parse error, we might want to exit?
-        // For now, let's respect env vars override or just fail if critical.
-        // Actually, let's respect env vars as overrides to config.
+		// but here err means file existed but bad parse or other error.
+		// If file missing, LoadConfig currently returns defaults.
+		// Let's assume we proceed if possible, but LoadConfig returns defaults on NotExist.
+		// If it's a parse error, we might want to exit?
+		// For now, let's respect env vars override or just fail if critical.
+		// Actually, let's respect env vars as overrides to config.
 	}
 
-    // Env vars override
-    if p := os.Getenv("PORT"); p != "" {
-        cfg.Port = p
-    }
-    if sf := os.Getenv("SERVE_FOLDER"); sf != "" {
-        cfg.ServeFolder = sf
-    }
+	// Env vars override
+	if p := os.Getenv("PORT"); p != "" {
+		cfg.Port = p
+	}
+	if sf := os.Getenv("SERVE_FOLDER"); sf != "" {
+		cfg.ServeFolder = sf
+	}
 
 	// Initialize Secrets Manager
 	secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
@@ -47,12 +47,12 @@ func main() {
 	}
 
 	// Check if templates exist, if not create them.
-    if _, err := os.Stat(cfg.TemplateDir); os.IsNotExist(err) {
-        createDefaultTemplates(cfg.TemplateDir)
+	if _, err := os.Stat(cfg.TemplateDir); os.IsNotExist(err) {
+		createDefaultTemplates(cfg.TemplateDir)
 	}
 
 	// Initialize Server
-	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder, cfg.Verbose)
+	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder, cfg.Verbose, cfg.AutoSelectTb0)
 
 	log.Printf("Starting server on port %s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, srv.Router()); err != nil {

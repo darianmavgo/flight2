@@ -21,24 +21,29 @@ import (
 
 // Server handles serving data.
 type Server struct {
-	dataManager *data.Manager
-	secrets     *secrets.Service
-	tableWriter *sqliter.TableWriter
-	templateDir string
-	serveFolder string
-	verbose     bool
+	dataManager   *data.Manager
+	secrets       *secrets.Service
+	tableWriter   *sqliter.TableWriter
+	templateDir   string
+	serveFolder   string
+	verbose       bool
+	autoSelectTb0 bool
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool) *Server {
+func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool) *Server {
+	if _, err := os.Stat(templateDir); err != nil {
+		log.Printf("TemplateDir %s does not exist: %v", templateDir, err)
+	}
 	t := sqliter.LoadTemplates(templateDir)
 	srv := &Server{
-		dataManager: dm,
-		secrets:     ss,
-		tableWriter: sqliter.NewTableWriter(t),
-		templateDir: templateDir,
-		serveFolder: serveFolder,
-		verbose:     verbose,
+		dataManager:   dm,
+		secrets:       ss,
+		tableWriter:   sqliter.NewTableWriter(t),
+		templateDir:   templateDir,
+		serveFolder:   serveFolder,
+		verbose:       verbose,
+		autoSelectTb0: autoSelectTb0,
 	}
 	// Log a warning if the configured serveFolder does not exist
 	if serveFolder != "" {
@@ -198,13 +203,13 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	if bq.Table == "sqlite_master" || bq.Table == "" {
-		s.listTables(w, db, bq.DataSetPath)
+		s.listTables(w, r, db, bq.DataSetPath)
 	} else {
 		s.queryTable(w, db, bq)
 	}
 }
 
-func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string) {
+func (s *Server) listTables(w http.ResponseWriter, r *http.Request, db *sql.DB, dbUrlPath string) {
 	s.log("Listing tables for: %s", dbUrlPath)
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
 	if err != nil {
@@ -213,23 +218,31 @@ func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string)
 	}
 	defer rows.Close()
 
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		tables = append(tables, name)
+	}
+
+	if s.autoSelectTb0 && len(tables) == 1 && tables[0] == "tb0" {
+		target := strings.TrimSuffix(dbUrlPath, "/") + "/tb0"
+		if !strings.HasPrefix(target, "/") {
+			target = "/" + target
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+
 	// Ensure absolute path
 	if !strings.HasPrefix(dbUrlPath, "/") {
 		dbUrlPath = "/" + dbUrlPath
 	}
 
 	sqliter.StartTableList(w)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			continue
-		}
-		// Link format needs to append the table name to the current URL.
-		// If dbUrlPath is the current URL, we just append /tablename?
-		// But we need to be careful about existing query params?
-		// Banquet handles path/table.
-		// If current url is /path, new url is /path/table
-
+	for _, name := range tables {
 		sqliter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name)
 	}
 	sqliter.EndTableList(w)

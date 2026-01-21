@@ -22,7 +22,7 @@ func TestManager_GetSQLiteDB_LocalFile(t *testing.T) {
 	f.WriteString("id,name\n1,Alice\n2,Bob")
 	f.Close()
 
-	mgr, err := NewManager()
+	mgr, err := NewManager(true)
 	if err != nil {
 		t.Fatal(err)
 	}

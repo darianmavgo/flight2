@@ -26,10 +26,11 @@ type Server struct {
 	tableWriter *sqliter.TableWriter
 	templateDir string
 	serveFolder string
+	verbose     bool
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string) *Server {
+func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool) *Server {
 	t := sqliter.LoadTemplates(templateDir)
 	return &Server{
 		dataManager: dm,
@@ -37,6 +38,13 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 		tableWriter: sqliter.NewTableWriter(t),
 		templateDir: templateDir,
 		serveFolder: serveFolder,
+		verbose:     verbose,
+	}
+}
+
+func (s *Server) log(format string, args ...interface{}) {
+	if s.verbose {
+		log.Printf(format, args...)
 	}
 }
 
@@ -49,6 +57,8 @@ func (s *Server) Router() http.Handler {
 
 // handleCredentials stores cloud credentials and returns an alias.
 func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
+	s.log("Incoming credentials request: %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -72,6 +82,7 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.log("Stored credentials with alias: %s", alias)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"alias": alias})
@@ -79,6 +90,8 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 
 // handleBanquet handles the banquet URL requests.
 func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
+	s.log("Incoming request: %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
+
 	if r.URL.Path == "/favicon.ico" {
 		http.NotFound(w, r)
 		return
@@ -89,6 +102,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Error parsing URL: %v", err), http.StatusBadRequest)
 		return
 	}
+	s.log("Parsed URL: source=%s, table=%s, user=%v", bq.DataSetPath, bq.Table, bq.User)
 
 	sourcePath := bq.DataSetPath
 
@@ -139,12 +153,14 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 
 	var creds map[string]interface{}
 	if alias != "" {
+		s.log("Looking up credentials for alias: %s", alias)
 		c, err := s.secrets.GetCredentials(alias)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error retrieving credentials for alias %s: %v", alias, err), http.StatusForbidden)
 			return
 		}
 		creds = c
+		s.log("Credentials found for alias: %s", alias)
 	} else {
 		creds = make(map[string]interface{})
 		// If we are serving from local folder, inject local type
@@ -154,11 +170,13 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch and convert
+	s.log("Fetching and converting data from: %s", sourcePath)
 	dbPath, err := s.dataManager.GetSQLiteDB(r.Context(), sourcePath, creds, alias)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error processing data: %v", err), http.StatusInternalServerError)
 		return
 	}
+	s.log("Database ready at: %s", dbPath)
 	// No need to defer remove dbPath here because it's cached.
 	// But `writeTempFile` creates a temp file. The cache holds the bytes in memory (BigCache).
 	// Wait, my `GetSQLiteDB` writes a temp file from cache every time.
@@ -180,6 +198,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string) {
+	s.log("Listing tables for: %s", dbUrlPath)
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Database error: %v", err), http.StatusInternalServerError)
@@ -211,7 +230,7 @@ func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string)
 
 func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banquet) {
 	query := common.ConstructSQL(bq)
-	log.Printf("Executing query: %s", query)
+	s.log("Executing query: %s", query)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -253,4 +272,5 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 	}
 
 	s.tableWriter.EndHTMLTable(w)
+	s.log("Finished response")
 }

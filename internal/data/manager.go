@@ -24,6 +24,11 @@ import (
 	_ "github.com/darianmavgo/mksqlite/converters/zip"
 )
 
+var supportedExtensions = []string{
+	".csv", ".xlsx", ".xls", ".zip", ".html", ".htm", ".json", ".txt",
+	".db", ".sqlite", ".sqlite3",
+}
+
 type Manager struct {
 	cache   *bigcache.BigCache
 	verbose bool
@@ -45,6 +50,19 @@ func NewManager(verbose bool) (*Manager, error) {
 
 // GetSQLiteDB returns a path to a SQLite database for the given source.
 func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[string]interface{}, alias string) (string, error) {
+	// If type is local, try to resolve extension if file not found
+	if t, ok := creds["type"].(string); ok && t == "local" {
+		if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+			for _, ext := range supportedExtensions {
+				p := sourcePath + ext
+				if info, err := os.Stat(p); err == nil && !info.IsDir() {
+					sourcePath = p
+					break
+				}
+			}
+		}
+	}
+
 	// Include alias in cache key to prevent cross-user leaks
 	key := fmt.Sprintf("%s:%s", alias, sourcePath)
 

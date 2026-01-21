@@ -32,7 +32,7 @@ type Server struct {
 // NewServer creates a new Server.
 func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool) *Server {
 	t := sqliter.LoadTemplates(templateDir)
-	return &Server{
+	srv := &Server{
 		dataManager: dm,
 		secrets:     ss,
 		tableWriter: sqliter.NewTableWriter(t),
@@ -40,6 +40,13 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 		serveFolder: serveFolder,
 		verbose:     verbose,
 	}
+	// Log a warning if the configured serveFolder does not exist
+	if serveFolder != "" {
+		if _, err := os.Stat(serveFolder); err != nil {
+			log.Printf("ServeFolder %s does not exist: %v", serveFolder, err)
+		}
+	}
+	return srv
 }
 
 func (s *Server) log(format string, args ...interface{}) {

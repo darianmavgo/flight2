@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mavgo Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 10px;
+            background-color: #212529;
+            color: #f8f9fa;
+            font-size: 13px;
+        }
+
+        .table-container {
+            border: 1px solid #373b3e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .url-cell {
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        a {
+            text-decoration: none;
+            color: #6ea8fe;
+            display: block;
+        }
+
+        a:hover {
+            text-decoration: underline;
+            background-color: #2c3034;
+        }
+
+        td {
+            vertical-align: middle;
+            padding: 2px 8px !important;
+            border-color: #373b3e;
+        }
+
+        .expected {
+            color: #adb5bd;
+        }
+
+        .table {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container-fluid p-0">
+        <div class="table-container">
+            <table class="table table-dark table-sm table-striped mb-0">
+                <tbody>
+                    <!-- Large Files -->
+                    <tr>
+                        <td class="url-cell" style="width: 50%"><a href="http://localhost:8080/21mb.csv?limit=50"
+                                target="_blank">/21mb.csv?limit=50</a></td>
+                        <td class="expected">21MB CSV Basic Load (Top 50)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/21mb.csv?select=name,email,phone&limit=50"
+                                target="_blank">/21mb.csv?select=name,email,phone&limit=50</a></td>
+                        <td class="expected">21MB CSV Selection (name,email,phone)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/21mb.csv?sort=name&limit=50"
+                                target="_blank">/21mb.csv?sort=name&limit=50</a></td>
+                        <td class="expected">21MB CSV Sorting (by name)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/21mb.csv?where=id>5000&limit=50"
+                                target="_blank">/21mb.csv?where=id>5000&limit=50</a></td>
+                        <td class="expected">21MB CSV Filtering (id > 5000)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/20mb.xlsx" target="_blank">/20mb.xlsx</a>
+                        </td>
+                        <td class="expected">20MB Excel Sheet Listing</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/20mb.xlsx/sheet1?limit=50"
+                                target="_blank">/20mb.xlsx/sheet1?limit=50</a></td>
+                        <td class="expected">20MB Excel Sheet Data</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/20mb.json" target="_blank">/20mb.json</a>
+                        </td>
+                        <td class="expected">20MB JSON Raw</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/20mb-examplefile-com.txt"
+                                target="_blank">/20mb-examplefile-com.txt</a></td>
+                        <td class="expected">20MB Text Raw</td>
+                    </tr>
+
+                    <!-- Core -->
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/" target="_blank">/</a></td>
+                        <td class="expected">Root Directory (Sample Data)</td>
+                    </tr>
+
+                    <!-- CSV -->
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.csv" target="_blank">/sample.csv</a>
+                        </td>
+                        <td class="expected">Small CSV Basic Load</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.csv/Name,City"
+                                target="_blank">/sample.csv/Name,City</a></td>
+                        <td class="expected">Small CSV Columns (Name, City)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.csv?where=age>25"
+                                target="_blank">/sample.csv?where=age>25</a></td>
+                        <td class="expected">Small CSV Filter (age > 25)</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.csv?sort=!^age"
+                                target="_blank">/sample.csv?sort=!^age</a></td>
+                        <td class="expected">Small CSV Sort (Age Desc)</td>
+                    </tr>
+
+                    <!-- Excel -->
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.xlsx"
+                                target="_blank">/sample.xlsx</a></td>
+                        <td class="expected">Small Excel Listing</td>
+                    </tr>
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/sample.xlsx/sheet1"
+                                target="_blank">/sample.xlsx/sheet1</a></td>
+                        <td class="expected">Small Excel Sheet Data</td>
+                    </tr>
+
+                    <!-- Zip -->
+                    <tr>
+                        <td class="url-cell"><a href="http://localhost:8080/history.db.zip"
+                                target="_blank">/history.db.zip</a></td>
+                        <td class="expected">Zip Archive Listing</td>
+                    </tr>
+
+                    <!-- Remote -->
+                    <tr>
+                        <td class="url-cell"><a
+                                href="http://localhost:8080/https://raw.githubusercontent.com/holtzy/data_to_viz/master/Example_dataset/1_OneNum.csv"
+                                target="_blank">/https://raw.githubusercontent.com/.../1_OneNum.csv</a></td>
+                        <td class="expected">Remote CSV Download</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</body>
+
+</html>

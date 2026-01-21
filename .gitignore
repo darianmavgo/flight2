@@ -1,0 +1,16 @@
+# Binaries
+server
+cmd/server/server
+
+# Secrets
+secrets.db
+.secret.key
+
+# Temporary files
+*.sqlite
+*.db
+test_secrets.db
+test.key
+
+# Logs
+*.log

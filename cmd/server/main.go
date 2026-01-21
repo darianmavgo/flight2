@@ -5,14 +5,36 @@ import (
 	"net/http"
 	"os"
 
+	"flight2/internal/config"
 	"flight2/internal/data"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
 )
 
 func main() {
+	// Load Config
+	cfg, err := config.LoadConfig("config.hcl")
+	if err != nil {
+		log.Printf("Warning: Could not load config.hcl: %v", err)
+		// Fallback to defaults provided by LoadConfig internally if file missing,
+        // but here err means file existed but bad parse or other error.
+        // If file missing, LoadConfig currently returns defaults.
+        // Let's assume we proceed if possible, but LoadConfig returns defaults on NotExist.
+        // If it's a parse error, we might want to exit?
+        // For now, let's respect env vars override or just fail if critical.
+        // Actually, let's respect env vars as overrides to config.
+	}
+
+    // Env vars override
+    if p := os.Getenv("PORT"); p != "" {
+        cfg.Port = p
+    }
+    if sf := os.Getenv("SERVE_FOLDER"); sf != "" {
+        cfg.ServeFolder = sf
+    }
+
 	// Initialize Secrets Manager
-	secretsService, err := secrets.NewService("secrets.db", ".secret.key")
+	secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize secrets service: %v", err)
 	}
@@ -24,29 +46,16 @@ func main() {
 		log.Fatalf("Failed to initialize data manager: %v", err)
 	}
 
-	// Template dir
-	// We need to ensure we have templates for sqliter.
-	// For now, we can use the ones in the module if we can locate them,
-	// or we can expect them to be in a "templates" folder relative to CWD.
-	// We should probably create some default templates if they don't exist.
-
 	// Check if templates exist, if not create them.
-	if _, err := os.Stat("templates"); os.IsNotExist(err) {
-		createDefaultTemplates("templates")
+    if _, err := os.Stat(cfg.TemplateDir); os.IsNotExist(err) {
+        createDefaultTemplates(cfg.TemplateDir)
 	}
 
 	// Initialize Server
-	serveFolder := os.Getenv("SERVE_FOLDER")
-	srv := server.NewServer(dataManager, secretsService, "templates", serveFolder)
+	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder)
 
-	// Start HTTP Server
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	log.Printf("Starting server on port %s", port)
-	if err := http.ListenAndServe(":"+port, srv.Router()); err != nil {
+	log.Printf("Starting server on port %s", cfg.Port)
+	if err := http.ListenAndServe(":"+cfg.Port, srv.Router()); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

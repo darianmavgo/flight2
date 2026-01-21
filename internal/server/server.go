@@ -60,7 +60,7 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	alias, err := s.secrets.StoreCredentials(creds)
+	alias, err := s.secrets.StoreCredentials("", creds)
 	if err != nil {
 		log.Printf("Error storing credentials: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

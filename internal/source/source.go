@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strings"
 
 	_ "github.com/rclone/rclone/backend/all"
 	"github.com/rclone/rclone/fs"
@@ -15,7 +16,20 @@ import (
 func GetFileStream(ctx context.Context, sourcePath string, creds map[string]interface{}) (io.ReadCloser, error) {
 	fsType, ok := creds["type"].(string)
 	if !ok {
-		return nil, fmt.Errorf("credentials missing 'type' field")
+		if strings.HasPrefix(sourcePath, "http:") || strings.HasPrefix(sourcePath, "https:") {
+			fsType = "http"
+		} else {
+			return nil, fmt.Errorf("credentials missing 'type' field")
+		}
+	}
+
+	// Fix potentially malformed URL scheme from banquet/path parsing
+	if fsType == "http" {
+		if strings.HasPrefix(sourcePath, "https:/") && !strings.HasPrefix(sourcePath, "https://") {
+			sourcePath = strings.Replace(sourcePath, "https:/", "https://", 1)
+		} else if strings.HasPrefix(sourcePath, "http:/") && !strings.HasPrefix(sourcePath, "http://") {
+			sourcePath = strings.Replace(sourcePath, "http:/", "http://", 1)
+		}
 	}
 
 	// Prepare config map

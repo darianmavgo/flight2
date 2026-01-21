@@ -24,19 +24,20 @@ func main() {
 		log.Fatalf("Failed to initialize data manager: %v", err)
 	}
 
-    // Template dir
-    // We need to ensure we have templates for sqliter.
-    // For now, we can use the ones in the module if we can locate them,
-    // or we can expect them to be in a "templates" folder relative to CWD.
-    // We should probably create some default templates if they don't exist.
+	// Template dir
+	// We need to ensure we have templates for sqliter.
+	// For now, we can use the ones in the module if we can locate them,
+	// or we can expect them to be in a "templates" folder relative to CWD.
+	// We should probably create some default templates if they don't exist.
 
-    // Check if templates exist, if not create them.
-    if _, err := os.Stat("templates"); os.IsNotExist(err) {
-        createDefaultTemplates("templates")
-    }
+	// Check if templates exist, if not create them.
+	if _, err := os.Stat("templates"); os.IsNotExist(err) {
+		createDefaultTemplates("templates")
+	}
 
 	// Initialize Server
-	srv := server.NewServer(dataManager, secretsService, "templates")
+	serveFolder := os.Getenv("SERVE_FOLDER")
+	srv := server.NewServer(dataManager, secretsService, "templates", serveFolder)
 
 	// Start HTTP Server
 	port := os.Getenv("PORT")
@@ -51,9 +52,9 @@ func main() {
 }
 
 func createDefaultTemplates(dir string) {
-    os.MkdirAll(dir, 0755)
+	os.MkdirAll(dir, 0755)
 
-    os.WriteFile(dir+"/head.html", []byte(`
+	os.WriteFile(dir+"/head.html", []byte(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -69,12 +70,12 @@ func createDefaultTemplates(dir string) {
     <h1>Data Browser</h1>
 `), 0644)
 
-    os.WriteFile(dir+"/foot.html", []byte(`
+	os.WriteFile(dir+"/foot.html", []byte(`
 </body>
 </html>
 `), 0644)
 
-    os.WriteFile(dir+"/row.html", []byte(`
+	os.WriteFile(dir+"/row.html", []byte(`
 <tr>
     {{range .}}<td>{{.}}</td>{{end}}
 </tr>

@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # 1. Go Modules (Daily)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    groups:
+      internal-updates:
+        patterns:
+          - "github.com/darianmavgo/*"
+
+  # 2. GitHub Actions (Weekly)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Groups action updates to avoid cluttering the PR list
+    groups:
+      ci-updates:
+        patterns:
+          - "*"
+

@@ -23,7 +23,7 @@ type Server struct {
 	dataManager *data.Manager
 	secrets     *secrets.Service
 	tableWriter *sqliter.TableWriter
-    templateDir string
+	templateDir string
 }
 
 // NewServer creates a new Server.
@@ -33,7 +33,7 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string) *Serve
 		dataManager: dm,
 		secrets:     ss,
 		tableWriter: sqliter.NewTableWriter(t),
-        templateDir: templateDir,
+		templateDir: templateDir,
 	}
 }
 
@@ -46,10 +46,6 @@ func (s *Server) Router() http.Handler {
 
 // handleCredentials stores cloud credentials and returns an alias.
 func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 
 	var creds map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
@@ -70,10 +66,10 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 
 // handleBanquet handles the banquet URL requests.
 func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
-    if r.URL.Path == "/favicon.ico" {
-        http.NotFound(w, r)
-        return
-    }
+	if r.URL.Path == "/favicon.ico" {
+		http.NotFound(w, r)
+		return
+	}
 
 	bq, err := banquet.ParseNested(r.URL.String())
 	if err != nil {
@@ -81,11 +77,11 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // Check if we have source path
-    if bq.DataSetPath == "" || bq.DataSetPath == "/" {
-         http.Error(w, "Welcome to Flight2! Usage: /<alias>@<source_url>/<query>", http.StatusOK)
-         return
-    }
+	// Check if we have source path
+	if bq.DataSetPath == "" || bq.DataSetPath == "/" {
+		http.Error(w, "Welcome to Flight2! Usage: /<alias>@<source_url>/<query>", http.StatusOK)
+		return
+	}
 
 	// Extract alias from userinfo
 	alias := ""
@@ -93,81 +89,81 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		alias = bq.User.Username()
 	}
 
-    var creds map[string]interface{}
+	var creds map[string]interface{}
 	if alias != "" {
 		c, err := s.secrets.GetCredentials(alias)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error retrieving credentials for alias %s: %v", alias, err), http.StatusForbidden)
 			return
 		}
-        creds = c
+		creds = c
 	} else {
-        // Allow public access if no alias provided? Or error?
-        // Prompt implies "use the userinfo... to retrieve stored credentials".
-        // If empty, maybe assume local file system or no auth?
-        // Let's allow empty creds (might work for local files if allowed)
-        creds = make(map[string]interface{})
-    }
+		// Allow public access if no alias provided? Or error?
+		// Prompt implies "use the userinfo... to retrieve stored credentials".
+		// If empty, maybe assume local file system or no auth?
+		// Let's allow empty creds (might work for local files if allowed)
+		creds = make(map[string]interface{})
+	}
 
-    // The DataSetPath in banquet includes the host part if it's a URL.
-    // Wait, banquet parsing:
-    // If input is `http://localhost:8080/myalias@s3/bucket/file.csv/query`
-    // Banquet parses this.
-    // Verify what banquet does with `ParseNested`.
-    // Assuming `r.URL.String()` is passed, it parses the request URL.
+	// The DataSetPath in banquet includes the host part if it's a URL.
+	// Wait, banquet parsing:
+	// If input is `http://localhost:8080/myalias@s3/bucket/file.csv/query`
+	// Banquet parses this.
+	// Verify what banquet does with `ParseNested`.
+	// Assuming `r.URL.String()` is passed, it parses the request URL.
 
-    // `banquet` treats the request path as the dataset path + query.
-    // But we are using the banquet URL format *in* the request path?
-    // "Use Banquet urls to parse a request url for a source and query."
-    // If the request is `GET /myalias@s3.amazonaws.com/bucket/file.csv`,
-    // `r.URL.String()` is `/myalias@s3.amazonaws.com/bucket/file.csv`.
-    // `banquet.ParseNested` parses the path.
+	// `banquet` treats the request path as the dataset path + query.
+	// But we are using the banquet URL format *in* the request path?
+	// "Use Banquet urls to parse a request url for a source and query."
+	// If the request is `GET /myalias@s3.amazonaws.com/bucket/file.csv`,
+	// `r.URL.String()` is `/myalias@s3.amazonaws.com/bucket/file.csv`.
+	// `banquet.ParseNested` parses the path.
 
-    // We need to reconstruct the "source URL" from the parsed banquet object.
-    // Banquet splits it into Source (DataSetPath) and Query (Table/etc).
-    // Note: `banquet` might not preserve the scheme if it's not part of the path.
-    // The user prompt says: "Use Banquet urls to parse a request url for a source and query."
-    // If I pass `/alias@host/path`, banquet parses userinfo=`alias`, host=`host`, path=`path`.
+	// We need to reconstruct the "source URL" from the parsed banquet object.
+	// Banquet splits it into Source (DataSetPath) and Query (Table/etc).
+	// Note: `banquet` might not preserve the scheme if it's not part of the path.
+	// The user prompt says: "Use Banquet urls to parse a request url for a source and query."
+	// If I pass `/alias@host/path`, banquet parses userinfo=`alias`, host=`host`, path=`path`.
 
-    // We need to construct the `sourcePath` for `internal/data`.
-    // It should probably be something `rclone` understands.
-    // If creds["type"] is "s3", rclone expects just the bucket/path, or maybe `s3:bucket/path`?
-    // In `internal/source`, we use `regInfo.NewFs`. The parent path is passed.
-    // If we use `fs.Find(type)`, we get a backend.
-    // Then `NewFs` creates a filesystem.
-    // If the source is `s3.amazonaws.com/bucket/file.csv`, we need to handle the host.
+	// We need to construct the `sourcePath` for `internal/data`.
+	// It should probably be something `rclone` understands.
+	// If creds["type"] is "s3", rclone expects just the bucket/path, or maybe `s3:bucket/path`?
+	// In `internal/source`, we use `regInfo.NewFs`. The parent path is passed.
+	// If we use `fs.Find(type)`, we get a backend.
+	// Then `NewFs` creates a filesystem.
+	// If the source is `s3.amazonaws.com/bucket/file.csv`, we need to handle the host.
 
-    // Rclone config map handles the type.
-    // If creds["type"] == "s3", we just need the path inside the bucket?
-    // Or if creds["type"] == "http", we need the URL.
+	// Rclone config map handles the type.
+	// If creds["type"] == "s3", we just need the path inside the bucket?
+	// Or if creds["type"] == "http", we need the URL.
 
-    // Let's assume the `bq.DataSetPath` is the path we want to access on the remote.
-    // However, `banquet` might have stripped the "host" if it parsed it as a URL?
-    // Let's look at `bq.DataSetPath`.
+	// Let's assume the `bq.DataSetPath` is the path we want to access on the remote.
+	// However, `banquet` might have stripped the "host" if it parsed it as a URL?
+	// Let's look at `bq.DataSetPath`.
 
-    sourcePath := bq.DataSetPath
-    // If banquet parsed "host", we might need to prepend it if it's relevant (e.g. http/ftp).
-    // But for cloud providers (s3, gcs), usually the bucket is the first part of the path or the host.
+	sourcePath := bq.DataSetPath
+	// If banquet parsed "host", we might need to prepend it if it's relevant (e.g. http/ftp).
+	// But for cloud providers (s3, gcs), usually the bucket is the first part of the path or the host.
 
-    // Clean up leading slash
-    sourcePath = strings.TrimPrefix(sourcePath, "/")
+	// Clean up leading slash
+	sourcePath = strings.TrimPrefix(sourcePath, "/")
 
-    // If we have a host in banquet, prepend it?
-    if bq.Host != "" {
-         sourcePath = bq.Host + "/" + sourcePath
-    }
+	// If we have a host in banquet, prepend it?
+	if bq.Host != "" {
+		sourcePath = bq.Host + "/" + sourcePath
+	}
 
-    // Fetch and convert
-    dbPath, err := s.dataManager.GetSQLiteDB(r.Context(), sourcePath, creds, alias)
+	// Fetch and convert
+	dbPath, err := s.dataManager.GetSQLiteDB(r.Context(), sourcePath, creds, alias)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error processing data: %v", err), http.StatusInternalServerError)
 		return
 	}
-    // No need to defer remove dbPath here because it's cached.
-    // But `writeTempFile` creates a temp file. The cache holds the bytes in memory (BigCache).
-    // Wait, my `GetSQLiteDB` writes a temp file from cache every time.
-    // So I SHOULD remove it after serving.
-    defer os.Remove(dbPath)
+	// No need to defer remove dbPath here because it's cached.
+	// But `writeTempFile` creates a temp file. The cache holds the bytes in memory (BigCache).
+	// Wait, my `GetSQLiteDB` writes a temp file from cache every time.
+	// So I SHOULD remove it after serving.
+	defer os.Remove(dbPath)
 
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -182,7 +178,6 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		s.queryTable(w, db, bq)
 	}
 }
-
 
 func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string) {
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -204,10 +199,10 @@ func (s *Server) listTables(w http.ResponseWriter, db *sql.DB, dbUrlPath string)
 			continue
 		}
 		// Link format needs to append the table name to the current URL.
-        // If dbUrlPath is the current URL, we just append /tablename?
-        // But we need to be careful about existing query params?
-        // Banquet handles path/table.
-        // If current url is /path, new url is /path/table
+		// If dbUrlPath is the current URL, we just append /tablename?
+		// But we need to be careful about existing query params?
+		// Banquet handles path/table.
+		// If current url is /path, new url is /path/table
 
 		sqliter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name)
 	}

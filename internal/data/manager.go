@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,10 +25,11 @@ import (
 )
 
 type Manager struct {
-	cache *bigcache.BigCache
+	cache   *bigcache.BigCache
+	verbose bool
 }
 
-func NewManager() (*Manager, error) {
+func NewManager(verbose bool) (*Manager, error) {
 	// Configure cache to hold gigabytes.
 	// Max size in MB. 2GB = 2048.
 	config := bigcache.DefaultConfig(10 * time.Minute)
@@ -38,7 +40,7 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{cache: cache}, nil
+	return &Manager{cache: cache, verbose: verbose}, nil
 }
 
 // GetSQLiteDB returns a path to a SQLite database for the given source.
@@ -49,11 +51,16 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 	// Check cache
 	entry, err := m.cache.Get(key)
 	if err == nil {
+		if m.verbose {
+			log.Printf("Cache hit for %s", sourcePath)
+		}
 		return writeTempFile(entry)
 	}
 
 	// Cache miss
-	fmt.Printf("Cache miss for %s, fetching and converting...\n", sourcePath)
+	if m.verbose {
+		log.Printf("Cache miss for %s, fetching and converting...", sourcePath)
+	}
 
 	// Prepare output file
 	tmpOut, err := os.CreateTemp("", "flight2_db_*.sqlite")

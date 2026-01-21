@@ -13,6 +13,7 @@ type Config struct {
 	TemplateDir  string `hcl:"template_dir,optional"`
 	SecretsDB    string `hcl:"secrets_db,optional"`
 	SecretKey    string `hcl:"secret_key,optional"`
+	Verbose      bool   `hcl:"verbose,optional"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

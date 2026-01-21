@@ -41,7 +41,7 @@ func main() {
 	defer secretsService.Close()
 
 	// Initialize Data Manager (BigCache + MkSQLite)
-	dataManager, err := data.NewManager()
+	dataManager, err := data.NewManager(cfg.Verbose)
 	if err != nil {
 		log.Fatalf("Failed to initialize data manager: %v", err)
 	}
@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Initialize Server
-	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder)
+	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder, cfg.Verbose)
 
 	log.Printf("Starting server on port %s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, srv.Router()); err != nil {

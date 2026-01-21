@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -44,135 +43,32 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/credentials", s.handleCredentials)
-	mux.HandleFunc("/credentials/delete", s.handleDeleteCredential)
 	mux.HandleFunc("/", s.handleBanquet)
 	return mux
 }
 
 // handleCredentials stores cloud credentials and returns an alias.
 func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
-		s.renderCredentials(w)
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		// Handle JSON input (legacy/API)
-		if r.Header.Get("Content-Type") == "application/json" {
-			var creds map[string]interface{}
-			if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-				http.Error(w, "Invalid JSON", http.StatusBadRequest)
-				return
-			}
-			// Check if alias is provided in JSON (optional extension)
-			alias := ""
-			if a, ok := creds["alias"].(string); ok {
-				alias = a
-				delete(creds, "alias") // Remove alias from stored creds
-			}
-
-			alias, err := s.secrets.StoreCredentials(alias, creds)
-			if err != nil {
-				log.Printf("Error storing credentials: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"alias": alias})
-			return
-		}
-
-		// Handle Form input
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
-			return
-		}
-
-		alias := r.FormValue("alias")
-		keys := r.Form["keys[]"]
-		values := r.Form["values[]"]
-
-		creds := make(map[string]interface{})
-		for i, k := range keys {
-			if i < len(values) && k != "" {
-				creds[k] = values[i]
-			}
-		}
-
-		if len(creds) == 0 {
-			http.Error(w, "No credentials provided", http.StatusBadRequest)
-			return
-		}
-
-		_, err := s.secrets.StoreCredentials(alias, creds)
-		if err != nil {
-			log.Printf("Error storing credentials: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		http.Redirect(w, r, "/credentials", http.StatusSeeOther)
-		return
-	}
-
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-}
-
-func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+	var creds map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	alias := r.FormValue("alias")
-	if alias == "" {
-		http.Error(w, "Alias required", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.secrets.DeleteCredentials(alias); err != nil {
-		log.Printf("Error deleting credentials: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/credentials", http.StatusSeeOther)
-}
-
-func (s *Server) renderCredentials(w http.ResponseWriter) {
-	aliases, err := s.secrets.ListAliases()
+	alias, err := s.secrets.StoreCredentials(creds)
 	if err != nil {
-		log.Printf("Error listing aliases: %v", err)
+		log.Printf("Error storing credentials: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	tmpl, err := template.ParseFiles(
-		filepath.Join(s.templateDir, "credentials.html"),
-		filepath.Join(s.templateDir, "head.html"),
-		filepath.Join(s.templateDir, "foot.html"),
-	)
-	if err != nil {
-		log.Printf("Error parsing templates: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	data := struct {
-		Aliases []string
-	}{
-		Aliases: aliases,
-	}
-
-	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("Error executing template: %v", err)
-	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"alias": alias})
 }
 
 // handleBanquet handles the banquet URL requests.

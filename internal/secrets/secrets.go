@@ -60,11 +60,16 @@ func (s *Service) Close() error {
 	return s.db.Close()
 }
 
-// StoreCredentials encrypts and stores the credentials, returning a generated alias.
-func (s *Service) StoreCredentials(creds map[string]interface{}) (string, error) {
-	alias, err := generateRandomString(12)
-	if err != nil {
-		return "", err
+// StoreCredentials encrypts and stores the credentials.
+// If alias is empty, a random one is generated.
+// Returns the alias used.
+func (s *Service) StoreCredentials(alias string, creds map[string]interface{}) (string, error) {
+	if alias == "" {
+		var err error
+		alias, err = generateRandomString(12)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	jsonData, err := json.Marshal(creds)
@@ -77,12 +82,40 @@ func (s *Service) StoreCredentials(creds map[string]interface{}) (string, error)
 		return "", fmt.Errorf("failed to encrypt data: %w", err)
 	}
 
-	_, err = s.db.Exec("INSERT INTO credentials (alias, data) VALUES (?, ?)", alias, encryptedData)
+	_, err = s.db.Exec("INSERT OR REPLACE INTO credentials (alias, data) VALUES (?, ?)", alias, encryptedData)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert into db: %w", err)
 	}
 
 	return alias, nil
+}
+
+// ListAliases returns a list of all stored aliases.
+func (s *Service) ListAliases() ([]string, error) {
+	rows, err := s.db.Query("SELECT alias FROM credentials ORDER BY alias")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query aliases: %w", err)
+	}
+	defer rows.Close()
+
+	var aliases []string
+	for rows.Next() {
+		var alias string
+		if err := rows.Scan(&alias); err != nil {
+			return nil, fmt.Errorf("failed to scan alias: %w", err)
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases, nil
+}
+
+// DeleteCredentials removes the credentials for the given alias.
+func (s *Service) DeleteCredentials(alias string) error {
+	_, err := s.db.Exec("DELETE FROM credentials WHERE alias = ?", alias)
+	if err != nil {
+		return fmt.Errorf("failed to delete credentials: %w", err)
+	}
+	return nil
 }
 
 // GetCredentials retrieves and decrypts credentials for the given alias.

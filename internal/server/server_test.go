@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/darianmavgo/sqliter/sqliter"
 )
 
 func TestHandleDebugEnv(t *testing.T) {
@@ -110,7 +112,7 @@ func TestListTables_AutoSelectTb0(t *testing.T) {
 			s := &Server{
 				verbose:       true,
 				autoSelectTb0: tt.autoSelect,
-				// We don't need other fields for listTables
+				tableWriter:   sqliter.NewTableWriter(nil, nil),
 			}
 
 			w := httptest.NewRecorder()

@@ -8,8 +8,10 @@ import (
 func TestLoadConfig(t *testing.T) {
 	// Create a temp config file
 	content := `
-port = "9090"
-serve_folder = "/tmp/data"
+{
+  "port": "9090",
+  "serve_folder": "/tmp/data"
+}
 `
 	tmpFile, err := os.CreateTemp("", "config_test_*.hcl")
 	if err != nil {

@@ -108,7 +108,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			return "", err
 		}
 
-		conv, err := converters.Open("filesystem", f)
+		conv, err := converters.Open("filesystem", f, nil)
 		if err != nil {
 			f.Close()
 			tmpOut.Close()
@@ -116,7 +116,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			return "", fmt.Errorf("failed to open filesystem converter: %w", err)
 		}
 
-		err = converters.ImportToSQLite(conv, tmpOut)
+		err = converters.ImportToSQLite(conv, tmpOut, nil)
 		f.Close()
 		if err != nil {
 			tmpOut.Close()
@@ -185,7 +185,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 				return "", err
 			}
 
-			conv, err := converters.Open(driver, srcF)
+			conv, err := converters.Open(driver, srcF, nil)
 			if err != nil {
 				srcF.Close()
 				tmpOut.Close()
@@ -198,7 +198,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 				defer c.Close()
 			}
 
-			err = converters.ImportToSQLite(conv, tmpOut)
+			err = converters.ImportToSQLite(conv, tmpOut, nil)
 			srcF.Close()
 			if err != nil {
 				tmpOut.Close()

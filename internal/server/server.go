@@ -132,30 +132,40 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath := bq.DataSetPath
 
-	// Handle ServeFolder if configured and path is root
-	if (sourcePath == "" || sourcePath == "/") && s.serveFolder != "" {
+	// Workaround for banquet stripping scheme from path-based URLs
+	// If request path contains "http:" or "https:" and sourcePath doesn't contain it.
+	// And we don't have an alias (which would handle authentication).
+	if bq.User == nil && (strings.Contains(r.URL.Path, "https:/") || strings.Contains(r.URL.Path, "http:/")) {
+		// Use the raw request path (trimmed) as the source path
+		rawPath := strings.TrimPrefix(r.URL.Path, "/")
+
+		// Fix https:/ -> https:// if needed (browsers/proxies often merge slashes)
+		if strings.Contains(rawPath, ":/") && !strings.Contains(rawPath, "://") {
+			rawPath = strings.Replace(rawPath, ":/", "://", 1)
+		}
+
+		sourcePath = rawPath
+
+		// Re-parse to extract user/alias from the corrected URL
+		if newBq, err := banquet.ParseBanquet(sourcePath); err == nil {
+			s.log("Re-parsed URL. User: %v", newBq.User)
+			if newBq.User != nil {
+				bq = newBq
+			}
+		} else {
+			s.log("Failed to re-parse URL: %v", err)
+		}
+	} else if (sourcePath == "" || sourcePath == "/") && s.serveFolder != "" {
+		// Handle ServeFolder if configured and path is root
 		sourcePath = s.serveFolder
 	} else if sourcePath == "" || sourcePath == "/" {
 		http.Error(w, "Welcome to Flight2! Usage: /<alias>@<source_url>/<query>", http.StatusOK)
 		return
 	} else {
-		// Existing logic for cleaning sourcePath
+		// Existing logic for cleaning sourcePath for non-URL paths
 		sourcePath = strings.TrimPrefix(sourcePath, "/")
 		if bq.Host != "" {
 			sourcePath = bq.Host + "/" + sourcePath
-		}
-
-		// Workaround for banquet stripping scheme from path-based URLs
-		// If request path contains "http:" or "https:" and sourcePath doesn't contain it.
-		// And we don't have an alias (which would handle authentication).
-		if (strings.Contains(r.URL.Path, "https:/") || strings.Contains(r.URL.Path, "http:/")) && !strings.Contains(sourcePath, "http") {
-			if bq.User == nil {
-				// Use the raw request path (trimmed) as the source path
-				// This might include the table, but since banquet failed to preserve scheme,
-				// we prioritize getting the source right.
-				// We assume the whole path is the source URL.
-				sourcePath = strings.TrimPrefix(r.URL.Path, "/")
-			}
 		}
 
 		// If serveFolder is set, and we don't have an alias or remote scheme, assume local path
@@ -182,6 +192,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		s.log("Looking up credentials for alias: %s", alias)
 		c, err := s.secrets.GetCredentials(alias)
 		if err != nil {
+			s.log("Error retrieving credentials for alias %s: %v", alias, err)
 			http.Error(w, fmt.Sprintf("Error retrieving credentials for alias %s: %v", alias, err), http.StatusForbidden)
 			return
 		}
@@ -197,8 +208,20 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch and convert
 	s.log("Fetching and converting data from: %s", sourcePath)
+
+	// S3 special handling: if using S3 credential and path is a URL, use only the path component.
+	if t, ok := creds["type"].(string); ok && t == "s3" {
+		if strings.HasPrefix(sourcePath, "http") {
+			p := bq.Path
+			p = strings.TrimPrefix(p, "/")
+			s.log("Sanitized S3 path from URL: %s -> %s", sourcePath, p)
+			sourcePath = p
+		}
+	}
+
 	dbPath, err := s.dataManager.GetSQLiteDB(r.Context(), sourcePath, creds, alias)
 	if err != nil {
+		s.log("Error processing data: %v", err)
 		http.Error(w, fmt.Sprintf("Error processing data: %v", err), http.StatusInternalServerError)
 		return
 	}

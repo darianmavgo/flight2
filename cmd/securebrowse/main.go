@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,12 +13,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"flight2/internal/config"
 	"flight2/internal/secrets"
 	"flight2/internal/source"
 
+	"github.com/darianmavgo/banquet"
 	"github.com/darianmavgo/sqliter/sqliter"
+
 	// Register all rclone backends
 	_ "github.com/rclone/rclone/backend/all"
 	"github.com/rclone/rclone/fs"
@@ -57,11 +61,13 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", srv.handleIndex)
-	mux.HandleFunc("POST /credentials", srv.handleCreateCredential)
+	mux.HandleFunc("GET /", srv.handleRoot)
+	mux.HandleFunc("GET /credentials/manage", srv.handleIndex)
+	mux.HandleFunc("POST /credentials/manage", srv.handleCreateCredential)
 	mux.HandleFunc("POST /credentials/delete", srv.handleDeleteCredential)
 	mux.HandleFunc("GET /browse/{alias}/{path...}", srv.handleBrowse)
 	mux.HandleFunc("GET /view/{alias}/{path...}", srv.handleView)
+	mux.HandleFunc("/", srv.handleBanquetPath)
 
 	// Static assets if any
 	// mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -140,7 +146,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 					<td><strong>%s</strong></td>
 					<td>
 						<a href='/browse/%s/' class='btn btn-browse'>📂 Browse</a>
-						<a href='/?edit=%s' class='btn btn-view'>✏️ Edit</a>
+						<a href='/credentials/manage?edit=%s' class='btn btn-view'>✏️ Edit</a>
 						<form action='/credentials/delete' method='POST' style='display:inline'>
 							<input type='hidden' name='alias' value='%s'>
 							<input type='submit' value='🗑️ Delete' class='btn btn-delete' onclick='return confirm("Are you sure?")'>
@@ -154,7 +160,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	submitText := "Add Remote"
 	if editAlias != "" {
 		formTitle = "✏️ Edit Remote: " + editAlias
-		submitText = "Update Remote"
+		submitText = "Update Credential"
 	}
 
 	fmt.Fprintf(w, `
@@ -166,7 +172,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 			<section class="add-remote">
 				<h2>%s</h2>
-				<form action="/credentials" method="POST" class="credential-form">
+				<form action="/credentials/manage" method="POST" class="credential-form">
 					<div class="form-group">
 						<label>Alias Name</label>
 						<input type="text" name="alias" required value="%s" placeholder="e.g., my-s3-bucket" %s>
@@ -282,11 +288,64 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		editConfig, submitText,
 		func() string {
 			if editAlias != "" {
-				return "<a href='/' class='btn' style='background:#334155; color:white;'>Cancel</a>"
+				return "<a href='/credentials/manage' class='btn' style='background:#334155; color:white;'>Cancel</a>"
 			}
 			return ""
 		}())
 	s.tableWriter.EndTableList(w)
+}
+
+func (s *Server) handleBanquetPath(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" {
+		s.handleRoot(w, r)
+		return
+	}
+
+	// Restore :// if net/http collapsed it to :/
+	rawPath := strings.TrimPrefix(r.URL.Path, "/")
+	if strings.Contains(rawPath, ":/") && !strings.Contains(rawPath, "://") {
+		rawPath = strings.Replace(rawPath, ":/", "://", 1)
+	}
+
+	bq, err := banquet.ParseBanquet(rawPath)
+	if err != nil || bq.Scheme == "" {
+		// Not a banquet URL, might be a direct root request if not matched
+		http.NotFound(w, r)
+		return
+	}
+
+	alias := ""
+	if bq.User != nil {
+		alias = bq.User.Username()
+	}
+
+	// For banquet URLs, the path in the banquet struct is the remote path
+	relPath := bq.Path
+	if relPath == "" {
+		relPath = "."
+	}
+
+	// Hijack the request to handleBrowse logic
+	// We need to inject the alias into the request or just call handleBrowse logic
+	// Since handleBrowse uses PathValue, we can't easily call it directly unless we modify it.
+	// But we can just call the list logic.
+
+	creds, err := s.secrets.GetCredentials(alias)
+	if err != nil {
+		http.Error(w, "Remote not found for alias: "+alias, http.StatusNotFound)
+		return
+	}
+
+	// Add provider type if missing and scheme is s3
+	if _, ok := creds["type"]; !ok && bq.Scheme == "s3" {
+		creds["type"] = "s3"
+	}
+
+	s.listingLogic(w, r, alias, relPath, creds)
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/credentials/manage", http.StatusSeeOther)
 }
 
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +368,20 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/credentials/manage", http.StatusSeeOther)
+
+	// Test auth in background
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		log.Printf("🔍 [AUTH TEST] Verifying remote '%s'...", alias)
+		_, err := source.ListEntries(ctx, "", creds)
+		if err != nil {
+			log.Printf("❌ [AUTH TEST] Remote '%s' FAILED: %v", alias, err)
+		} else {
+			log.Printf("✅ [AUTH TEST] Remote '%s' is AUTHENTICATED", alias)
+		}
+	}()
 }
 
 func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +396,7 @@ func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/credentials/manage", http.StatusSeeOther)
 }
 
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
@@ -337,6 +409,10 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.listingLogic(w, r, alias, relPath, creds)
+}
+
+func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias string, relPath string, creds map[string]interface{}) {
 	entries, err := source.ListEntries(r.Context(), relPath, creds)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list entries: %v", err), http.StatusInternalServerError)
@@ -360,8 +436,24 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<div class='container'>")
 	fmt.Fprintf(w, "<h2>📂 Browsing: %s <span style='color:var(--text-muted); font-size: 0.9rem; margin-left: 0.5rem;'>/%s</span></h2>", alias, relPath)
 
+	// Determine base path for links
+	basePath := "/browse/" + alias
+	viewPath := "/view/" + alias
+	if strings.Contains(r.URL.Path, "://") || (strings.Contains(r.URL.Path, ":/") && !strings.Contains(r.URL.Path, "/browse/")) {
+		// We are likely in a Banquet URL context
+		// Extract the prefix (everything before the path part)
+		raw := r.URL.Path
+		if relPath != "" && relPath != "." && strings.HasSuffix(raw, relPath) {
+			basePath = strings.TrimSuffix(raw, relPath)
+		} else {
+			basePath = raw
+		}
+		basePath = strings.TrimSuffix(basePath, "/")
+		viewPath = basePath // For banquet, we might not have a separate 'view' prefix yet
+	}
+
 	cols := []string{"Type", "Name", "Size", "Modified", "Actions"}
-	s.tableWriter.StartHTMLTable(w, cols, "") // Empty title as we added H2 manually
+	s.tableWriter.StartHTMLTable(w, cols, "")
 
 	// Add ".." link if not at root
 	if relPath != "" && relPath != "." {
@@ -369,7 +461,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		if parent == "." {
 			parent = ""
 		}
-		fmt.Fprintf(w, "<tr><td><span class='badge badge-folder'>📁</span></td><td><a href='/browse/%s/%s' style='font-weight:600;'>.. [ Parent Directory ]</a></td><td>-</td><td>-</td><td>-</td></tr>", alias, parent)
+		fmt.Fprintf(w, "<tr><td><span class='badge badge-folder'>📁</span></td><td><a href='%s/%s' style='font-weight:600;'>.. [ Parent Directory ]</a></td><td>-</td><td>-</td><td>-</td></tr>", basePath, parent)
 	}
 
 	for _, entry := range entries {
@@ -381,12 +473,12 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			icon = "<span class='badge badge-folder'>📁</span>"
 			sizeStr = "-"
 			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
-			actions = fmt.Sprintf("<a href='/browse/%s/%s' class='btn btn-browse'>📂 Open</a>", alias, fullPath)
+			actions = fmt.Sprintf("<a href='%s/%s' class='btn btn-browse'>📂 Open</a>", basePath, fullPath)
 		} else {
 			icon = "<span class='badge badge-file'>📄</span>"
 			sizeStr = formatSize(entry.Size())
 			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
-			actions = fmt.Sprintf("<a href='/view/%s/%s' target='_blank' class='btn btn-view'>👁️ View</a>", alias, fullPath)
+			actions = fmt.Sprintf("<a href='%s/%s' target='_blank' class='btn btn-view'>👁️ View</a>", viewPath, fullPath)
 		}
 
 		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", icon, name, sizeStr, modified, actions)

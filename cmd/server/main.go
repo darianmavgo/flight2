@@ -1,9 +1,12 @@
 package main
 
 import (
+	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"flight2/internal/config"
 	"flight2/internal/data"
@@ -12,10 +15,14 @@ import (
 )
 
 func main() {
+	// Parse flags
+	configPath := flag.String("config", "config.hcl", "Path to configuration file")
+	flag.Parse()
+
 	// Load Config
-	cfg, err := config.LoadConfig("config.json")
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Printf("Warning: Could not load config.json: %v", err)
+		log.Printf("Warning: Could not load %s: %v", *configPath, err)
 		// Fallback to defaults provided by LoadConfig internally if file missing,
 		// but here err means file existed but bad parse or other error.
 		// If file missing, LoadConfig currently returns defaults.
@@ -54,9 +61,34 @@ func main() {
 	// Initialize Server
 	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder, cfg.Verbose, cfg.AutoSelectTb0)
 
-	log.Printf("Starting server on port %s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, srv.Router()); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	log.Printf("Loaded configuration. SecretKey: %s", cfg.SecretKey)
+
+	startPort, _ := strconv.Atoi(cfg.Port)
+	if startPort == 0 {
+		startPort = 8080
+	}
+
+	var finalErr error
+	for i := 0; i < 3; i++ {
+		currentPort := strconv.Itoa(startPort + i)
+		ln, err := net.Listen("tcp", ":"+currentPort)
+		if err != nil {
+			log.Printf("Port %s is busy, trying next...", currentPort)
+			finalErr = err
+			continue
+		}
+
+		log.Printf("Starting server on port %s", currentPort)
+		// We use http.Serve with the listener
+		finalErr = http.Serve(ln, srv.Router())
+		if finalErr != nil {
+			log.Fatalf("Server failed: %v", finalErr)
+		}
+		return
+	}
+
+	if finalErr != nil {
+		log.Fatalf("Failed to start server after 3 attempts: %v", finalErr)
 	}
 }
 

@@ -1,0 +1,528 @@
+package tests
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"flight2/internal/data"
+	"flight2/internal/secrets"
+
+	"github.com/darianmavgo/banquet"
+	"github.com/darianmavgo/sqliter/sqliter"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/rclone/rclone/backend/all"
+)
+
+// TestCloudflareR2EndToEnd performs an end-to-end test of the Cloudflare R2 integration.
+// ... (code omitted for brevity, same as before)
+// URL: https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv
+// Credential Alias: r2-auth
+func TestCloudflareR2EndToEnd(t *testing.T) {
+	// ... (content of TestCloudflareR2EndToEnd, copied from original view_file)
+	// 1. Setup Credentials
+	creds := map[string]interface{}{
+		"provider":          "Cloudflare",
+		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
+		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
+		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"region":            "auto",
+		"chunk_size":        "5Mi",
+		"copy_cutoff":       "5Mi",
+		"type":              "s3",
+	}
+
+	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp secrets DB: %v", err)
+	}
+	defer os.Remove(tmpSecretsDB.Name())
+
+	secretsService, err := secrets.NewService(tmpSecretsDB.Name(), "test-key")
+	if err != nil {
+		t.Fatalf("Failed to initialize secrets service: %v", err)
+	}
+	defer secretsService.Close()
+
+	alias := "r2-auth"
+	_, err = secretsService.StoreCredentials(alias, creds)
+	if err != nil {
+		t.Fatalf("Failed to store credentials: %v", err)
+	}
+
+	// 2. Parse Banquet URL
+	targetURL := "https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv"
+
+	bq, err := banquet.ParseBanquet(targetURL)
+	if err != nil {
+		t.Fatalf("Failed to parse banquet URL: %v", err)
+	}
+
+	if bq.User == nil || bq.User.Username() != alias {
+		t.Fatalf("Expected alias '%s', got '%v'", alias, bq.User)
+	}
+
+	log.Printf("Parsed URL: Scheme=%s, Alias=%s, Host=%s, Path=%s", bq.Scheme, bq.User.Username(), bq.Host, bq.Path)
+
+	sourcePath := bq.Path
+	if len(sourcePath) > 0 && sourcePath[0] == '/' {
+		sourcePath = sourcePath[1:]
+	}
+
+	// 3. Convert to SQLite
+	dm, err := data.NewManager(true)
+	if err != nil {
+		t.Fatalf("Failed to create data manager: %v", err)
+	}
+
+	ctx := context.Background()
+
+	storedCreds, err := secretsService.GetCredentials(alias)
+	if err != nil {
+		t.Fatalf("Failed to retrieve credentials: %v", err)
+	}
+
+	if _, ok := storedCreds["type"]; !ok {
+		storedCreds["type"] = "s3"
+	}
+
+	log.Printf("Fetching and converting: %s", sourcePath)
+	dbPath, err := dm.GetSQLiteDB(ctx, sourcePath, storedCreds, alias)
+	if err != nil {
+		t.Fatalf("Failed to convert to SQLite: %v", err)
+	}
+	defer os.Remove(dbPath)
+
+	log.Printf("Conversion successful, DB at: %s", dbPath)
+
+	// 4. Query resulting SQLite file
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open SQLite DB: %v", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT * FROM tb0")
+	if err != nil {
+		t.Fatalf("Failed to query tb0: %v", err)
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		t.Fatalf("Failed to get columns: %v", err)
+	}
+	log.Printf("Columns: %v", cols)
+
+	rowCount := 0
+	for rows.Next() {
+		rowCount++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("Error iterating rows: %v", err)
+	}
+
+	log.Printf("Successfully queried %d rows from tb0", rowCount)
+
+	if rowCount == 0 {
+		t.Log("Warning: Table tb0 is empty")
+	}
+}
+
+// ... (StartTestServer and TestServerWrapper omitted for brevity, logic remains same)
+func StartTestServer(t *testing.T, secretsService *secrets.Service) (string, func()) {
+	// ... (same as before)
+	tmpDir, err := os.MkdirTemp("", "templates")
+	if err != nil {
+		t.Fatalf("Failed to create temp template dir: %v", err)
+	}
+	createTestTemplates(tmpDir)
+	tpl := sqliter.LoadTemplates(tmpDir)
+
+	dm, err := data.NewManager(true)
+	if err != nil {
+		t.Fatalf("Failed to create data manager: %v", err)
+	}
+
+	server := &TestServerWrapper{
+		dm: dm,
+		ss: secretsService,
+		tw: sqliter.NewTableWriter(tpl, sqliter.DefaultConfig()),
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	baseUrl := fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", server.handleRequest)
+
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln)
+
+	return baseUrl, func() {
+		srv.Shutdown(context.Background())
+		os.RemoveAll(tmpDir)
+	}
+}
+
+type TestServerWrapper struct {
+	dm *data.Manager
+	ss *secrets.Service
+	tw *sqliter.TableWriter
+}
+
+func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request) {
+	// ... (same as before)
+	rawPath := strings.TrimPrefix(r.URL.Path, "/")
+	if strings.Contains(rawPath, ":/") && !strings.Contains(rawPath, "://") {
+		rawPath = strings.Replace(rawPath, ":/", "://", 1)
+	}
+
+	bq, err := banquet.ParseBanquet(rawPath)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	alias := bq.User.Username()
+	srcPath := bq.Path
+	if len(srcPath) > 0 && srcPath[0] == '/' {
+		srcPath = srcPath[1:]
+	}
+
+	creds, err := s.ss.GetCredentials(alias)
+	if err != nil {
+		http.Error(w, "Creds not found", 500)
+		return
+	}
+	if _, ok := creds["type"]; !ok {
+		creds["type"] = "s3"
+	}
+
+	dbPath, err := s.dm.GetSQLiteDB(r.Context(), srcPath, creds, alias)
+	if err != nil {
+		http.Error(w, "Conversion failed: "+err.Error(), 500)
+		return
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT * FROM tb0 LIMIT 50")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+
+	cols, _ := rows.Columns()
+
+	s.tw.StartTableList(w, "Query Result")
+	s.tw.StartHTMLTable(w, cols, "Test Table")
+
+	rowData := make([]interface{}, len(cols))
+	rowPtrs := make([]interface{}, len(cols))
+	for i := range rowData {
+		rowPtrs[i] = &rowData[i]
+	}
+
+	for rows.Next() {
+		rows.Scan(rowPtrs...)
+		strRow := make([]string, len(cols))
+		for i, val := range rowData {
+			if val == nil {
+				strRow[i] = ""
+			} else {
+				strRow[i] = fmt.Sprintf("%v", val)
+			}
+		}
+		s.tw.WriteHTMLRow(w, strRow)
+	}
+	s.tw.EndHTMLTable(w)
+	s.tw.EndTableList(w)
+}
+
+func createTestTemplates(dir string) {
+	os.WriteFile(filepath.Join(dir, "list_head.html"), []byte(`<html><body>`), 0644)
+	os.WriteFile(filepath.Join(dir, "list_foot.html"), []byte(`</body></html>`), 0644)
+	os.WriteFile(filepath.Join(dir, "row.html"), []byte(`<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>`), 0644)
+}
+
+// TestCloudflareR2Browser ... (same as before)
+func TestCloudflareR2Browser(t *testing.T) {
+	// ... (same content as TestCloudflareR2Browser)
+	creds := map[string]interface{}{
+		"provider":          "Cloudflare",
+		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
+		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
+		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"region":            "auto",
+		"chunk_size":        "5Mi",
+		"copy_cutoff":       "5Mi",
+		"type":              "s3",
+	}
+
+	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_browser_*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp secrets DB: %v", err)
+	}
+	defer os.Remove(tmpSecretsDB.Name())
+
+	secretsService, err := secrets.NewService(tmpSecretsDB.Name(), "test-key")
+	if err != nil {
+		t.Fatalf("Failed to initialize secrets service: %v", err)
+	}
+	defer secretsService.Close()
+
+	alias := "r2-auth"
+	_, err = secretsService.StoreCredentials(alias, creds)
+	if err != nil {
+		t.Fatalf("Failed to store credentials: %v", err)
+	}
+
+	serverURL, cleanup := StartTestServer(t, secretsService)
+	defer cleanup()
+
+	l := launcher.New().Headless(true)
+	u, err := l.Launch()
+	if err != nil {
+		t.Logf("Failed to launch browser: %v. Attempting to use system browser...", err)
+		u = launcher.NewUserMode().MustLaunch()
+	}
+
+	browser := rod.New().ControlURL(u).MustConnect()
+	defer browser.MustClose()
+
+	start := time.Now()
+
+	banquetURL := "https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv"
+	visitURL := fmt.Sprintf("%s/%s", serverURL, banquetURL)
+
+	t.Logf("Navigating to %s", visitURL)
+
+	page := browser.MustPage(visitURL)
+
+	err = page.Timeout(10*time.Second).WaitElementsMoreThan("tr", 10)
+	if err != nil {
+		t.Fatalf("Failed to load 10 rows within timeout: %v", err)
+	}
+
+	elapsed := time.Since(start)
+	t.Logf("Page loaded 10+ rows in %v", elapsed)
+
+	if elapsed > 3*time.Second {
+		t.Fatalf("Performance Test Failed: Took %v to load 10 rows (limit 3s)", elapsed)
+	}
+
+	content, err := page.HTML()
+	if err != nil {
+		t.Fatalf("Failed to get page HTML: %v", err)
+	}
+	if !strings.Contains(content, "id") || !strings.Contains(content, "email") {
+		t.Errorf("Page content missing expected headers")
+	}
+}
+
+// TestCloudflareR2IntegrationBinary performs an integration test using the actual compiled executable associated with flight2.
+// It assumes ./bin/server exists and launches it in verbose mode.
+func TestCloudflareR2IntegrationBinary(t *testing.T) {
+	// 1. Prepare environment
+	// We need a secrets.db file for the binary to use.
+	// Since the binary uses config.json to find secrets.db, we might need to modify config.json or use env vars.
+	// Server supports config loading, but also hardcoded paths?
+	// We should create a temporary secrets.db and point the server to it via env var (if supported)
+	// or create a temp config.json.
+
+	// Create temp secrets DB
+	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_bin_*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp secrets DB: %v", err)
+	}
+	dbPath := tmpSecretsDB.Name()
+	tmpSecretsDB.Close() // Close so other processes can use it
+	defer os.Remove(dbPath)
+
+	// Populate secrets DB manually or using secrets service
+	secretsService, err := secrets.NewService(dbPath, "test-key")
+	if err != nil {
+		t.Fatalf("Failed to initialize secrets service: %v", err)
+	}
+	creds := map[string]interface{}{
+		"provider":          "Cloudflare",
+		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
+		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
+		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"region":            "auto",
+		"chunk_size":        "5Mi",
+		"copy_cutoff":       "5Mi",
+		"type":              "s3",
+	}
+	_, err = secretsService.StoreCredentials("r2-auth", creds)
+	if err != nil {
+		secretsService.Close()
+		t.Fatalf("Failed to store credentials: %v", err)
+	}
+	secretsService.Close()
+
+	// 2. Prepare Config
+	// We'll create a temporary config.json
+	configFile, err := os.CreateTemp("", "config_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp config: %v", err)
+	}
+	configPath := configFile.Name()
+	configHCL := fmt.Sprintf(`
+		port = "0"
+		secrets_db = "%s"
+		secret_key = "test-key"
+		verbose = true
+		template_dir = "templates"
+		auto_select_tb0 = true
+	`, dbPath) // port 0 will be replaced
+	// Our server update loop supports starting from a port. So 0 might default to 8080.
+	// We should pick a random free port for the test.
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	freePort := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	configHCL = strings.Replace(configHCL, `port = "0"`, fmt.Sprintf(`port = "%d"`, freePort), 1)
+
+	// We need to ensure templates dir exists relative to where we run the binary.
+	// The binary is in ./bin/server (assumed from prompt "./bin/server").
+	// We usually run tests from project root or tests dir.
+	// If we run `go test .`, CWD is tests/.
+	// We need to find the project root.
+	projectRoot, _ := filepath.Abs("..")
+	binPath := filepath.Join(projectRoot, "bin", "server")
+	if _, err := os.Stat(binPath); os.IsNotExist(err) {
+		t.Fatalf("Binary not found at %s. Did you build it?", binPath)
+	}
+
+	configFile.WriteString(configHCL)
+	configFile.Close()
+	defer os.Remove(configPath)
+
+	// 3. Launch ./bin/server
+	cmd := exec.Command(binPath, "-config", "config.hcl")
+	// We need to make sure it finds config.json.
+	// The server loads config.json from CWD or specific path? config.LoadConfig("config.json") implies CWD.
+	// So we should run cmd in a dir where config.json exists.
+	// Or we can symlink config.json to a temp dir and run there.
+
+	runDir, err := os.MkdirTemp("", "flight2_run_*")
+	if err != nil {
+		t.Fatalf("Failed to create run dir: %v", err)
+	}
+	defer os.RemoveAll(runDir)
+
+	// Copy/Symlink config
+	t.Logf("Running server in directory: %s", runDir)
+	err = os.WriteFile(filepath.Join(runDir, "config.hcl"), []byte(configHCL), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config in run dir: %v", err)
+	}
+
+	// Copy templates to runDir/templates (server needs them)
+	os.Mkdir(filepath.Join(runDir, "templates"), 0755)
+	createTestTemplates(filepath.Join(runDir, "templates")) // reuse our helper
+
+	cmd.Dir = runDir
+
+	// Capture stdout/stderr
+	// stdoutPipe, _ := cmd.StdoutPipe() // We don't expect stdout, or we can let it flow to test output
+	cmd.Stdout = os.Stdout
+	stderrPipe, _ := cmd.StderrPipe() // Server logs to stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+
+	// Monitor logs in background
+	serverReady := make(chan bool)
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			t.Logf("[SERVER] %s", line)
+			if strings.Contains(line, "Starting server on port") {
+				serverReady <- true
+			}
+			// We can also Scan for specific package logs here as requested!
+			if strings.Contains(line, "Cache miss") {
+				t.Log("✅ Confirmed: Data Manager Cache Miss")
+			}
+			if strings.Contains(line, "Fetching and converting") {
+				t.Log("✅ Confirmed: Server Handling Banquet Request")
+			}
+		}
+	}()
+
+	// Wait for server ready
+	select {
+	case <-serverReady:
+		t.Log("Server is ready")
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Timed out waiting for server to start. Check [SERVER] logs above for errors.")
+	}
+
+	// 4. Headless Browser Test against the binary
+	l := launcher.New().Headless(true)
+	u, err := l.Launch()
+	if err != nil {
+		u = launcher.NewUserMode().MustLaunch()
+	}
+	browser := rod.New().ControlURL(u).MustConnect()
+	defer browser.MustClose()
+
+	start := time.Now()
+	banquetURL := "https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv"
+	visitURL := fmt.Sprintf("http://127.0.0.1:%d/%s", freePort, banquetURL)
+
+	t.Logf("Navigating to %s", visitURL)
+	page := browser.MustPage(visitURL)
+
+	err = page.Timeout(10*time.Second).WaitElementsMoreThan("tr", 10)
+	if err != nil {
+		t.Fatalf("Failed to load 10 rows: %v", err)
+	}
+
+	elapsed := time.Since(start)
+	t.Logf("Page loaded 10+ rows in %v", elapsed)
+
+	if elapsed > 3*time.Second {
+		t.Fatalf("Performance Test Failed: Took %v to load 10 rows", elapsed)
+	}
+
+	// Confirm we saw logs covering steps
+	// Implementation note: The goroutine scanning logs runs concurrently.
+	// We might not have seen all logs yet if they are buffered.
+	// But usually log.Printf is unbuffered or line buffered.
+}

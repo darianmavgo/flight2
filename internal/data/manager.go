@@ -41,6 +41,7 @@ func NewManager(verbose bool) (*Manager, error) {
 	// Max size in MB. 2GB = 2048.
 	config := bigcache.DefaultConfig(10 * time.Minute)
 	config.HardMaxCacheSize = 2048
+	config.Shards = 32 // Fewer shards means larger shard size (2048 / 32 = 64MB)
 	config.CleanWindow = 5 * time.Minute
 
 	cache, err := bigcache.New(context.Background(), config)

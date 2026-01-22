@@ -260,7 +260,7 @@ func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request
 }
 
 func createTestTemplates(dir string) {
-	os.WriteFile(filepath.Join(dir, "head.html"), []byte(`<html><head><title>{{.Title}}</title></head><body><table>`), 0644)
+	os.WriteFile(filepath.Join(dir, "head.html"), []byte(`<html><head><title>{{.Title}}</title></head><body><table><thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead><tbody>`), 0644)
 	os.WriteFile(filepath.Join(dir, "foot.html"), []byte(`</table></body></html>`), 0644)
 	os.WriteFile(filepath.Join(dir, "row.html"), []byte(`<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>`), 0644)
 	os.WriteFile(filepath.Join(dir, "list_head.html"), []byte(`<html><body><ul>`), 0644)

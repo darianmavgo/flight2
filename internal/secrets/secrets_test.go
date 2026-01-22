@@ -56,12 +56,21 @@ func TestAddCompellingCredentials(t *testing.T) {
 			},
 		},
 		{
-			Alias: "local-workspace",
+			Alias: "cloudflare-r2-assets",
 			Data: map[string]interface{}{
-				"type": "local",
+				"type":              "s3",
+				"provider":          "Cloudflare",
+				"access_key_id":     "73d6fake...a01b",
+				"secret_access_key": "4f92fake...8c2d",
+				"endpoint":          "https://<accountid>.r2.cloudflarestorage.com",
+				"region":            "auto",
 			},
 		},
 	}
+
+	// First, let's clean up local-test and local-workspace if they exist
+	svc.DeleteCredentials("local-test")
+	svc.DeleteCredentials("local-workspace")
 
 	for _, c := range compellingCreds {
 		_, err := svc.StoreCredentials(c.Alias, c.Data)

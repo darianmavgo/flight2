@@ -1,20 +1,19 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-
-	"github.com/hashicorp/hcl/v2/hclsimple"
 )
 
 type Config struct {
-	Port          string `hcl:"port,optional"`
-	ServeFolder   string `hcl:"serve_folder,optional"`
-	TemplateDir   string `hcl:"template_dir,optional"`
-	SecretsDB     string `hcl:"secrets_db,optional"`
-	SecretKey     string `hcl:"secret_key,optional"`
-	Verbose       bool   `hcl:"verbose,optional"`
-	AutoSelectTb0 bool   `hcl:"auto_select_tb0,optional"`
+	Port          string `json:"port"`
+	ServeFolder   string `json:"serve_folder"`
+	TemplateDir   string `json:"template_dir"`
+	SecretsDB     string `json:"secrets_db"`
+	SecretKey     string `json:"secret_key"`
+	Verbose       bool   `json:"verbose"`
+	AutoSelectTb0 bool   `json:"auto_select_tb0"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
@@ -30,12 +29,18 @@ func LoadConfig(filename string) (*Config, error) {
 		return &config, nil
 	}
 
-	err := hclsimple.DecodeFile(filename, nil, &config)
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	err = json.NewDecoder(f).Decode(&config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config file: %w", err)
 	}
 
-	// Double check empty strings if decoded from file (though hclsimple shouldn't overwrite if absent)
+	// Double check defaults if empty
 	if config.Port == "" {
 		config.Port = "8080"
 	}

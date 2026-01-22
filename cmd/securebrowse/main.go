@@ -30,9 +30,9 @@ type Server struct {
 }
 
 func main() {
-	cfg, err := config.LoadConfig("config.hcl")
+	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
-		log.Printf("Warning: Could not load config.hcl: %v", err)
+		log.Printf("Warning: Could not load config.json: %v", err)
 	}
 
 	// Env overrides
@@ -104,6 +104,22 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for edit mode
+	editAlias := r.URL.Query().Get("edit")
+	var editType string
+	var editConfig string
+	if editAlias != "" {
+		creds, err := s.secrets.GetCredentials(editAlias)
+		if err == nil {
+			if t, ok := creds["type"].(string); ok {
+				editType = t
+				delete(creds, "type")
+			}
+			b, _ := json.MarshalIndent(creds, "", "  ")
+			editConfig = string(b)
+		}
+	}
+
 	s.tableWriter.StartTableList(w, "SecureBrowse Remotes")
 	fmt.Fprintf(w, `
 		<div class="container">
@@ -124,13 +140,21 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 					<td><strong>%s</strong></td>
 					<td>
 						<a href='/browse/%s/' class='btn btn-browse'>📂 Browse</a>
+						<a href='/?edit=%s' class='btn btn-view'>✏️ Edit</a>
 						<form action='/credentials/delete' method='POST' style='display:inline'>
 							<input type='hidden' name='alias' value='%s'>
 							<input type='submit' value='🗑️ Delete' class='btn btn-delete' onclick='return confirm("Are you sure?")'>
 						</form>
 					</td>
-				</tr>`, alias, alias, alias)
+				</tr>`, alias, alias, alias, alias)
 		}
+	}
+
+	formTitle := "➕ Add New Remote"
+	submitText := "Add Remote"
+	if editAlias != "" {
+		formTitle = "✏️ Edit Remote: " + editAlias
+		submitText = "Update Remote"
 	}
 
 	fmt.Fprintf(w, `
@@ -141,36 +165,127 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			<hr class="separator">
 
 			<section class="add-remote">
-				<h2>➕ Add New Remote</h2>
+				<h2>%s</h2>
 				<form action="/credentials" method="POST" class="credential-form">
 					<div class="form-group">
 						<label>Alias Name</label>
-						<input type="text" name="alias" required placeholder="e.g., my-s3-bucket">
+						<input type="text" name="alias" required value="%s" placeholder="e.g., my-s3-bucket" %s>
+						%s
 					</div>
 					<div class="form-group">
 						<label>Provider Type</label>
-						<select name="type" required>
-							<option value="s3">Amazon S3</option>
-							<option value="drive">Google Drive</option>
-							<option value="dropbox">Dropbox</option>
-							<option value="sftp">SFTP</option>
-							<option value="azureblob">Azure Blob Storage</option>
-							<option value="b2">Backblaze B2</option>
-							<option value="box">Box</option>
-							<option value="http">HTTP/HTTPS</option>
-							<option value="local">Local Filesystem</option>
+						<select name="type" required id="provider-select">
+							<option value="s3" %s>Cloudflare R2 / AWS S3</option>
+							<option value="drive" %s>Google Drive</option>
+							<option value="dropbox" %s>Dropbox</option>
+							<option value="sftp" %s>SFTP</option>
+							<option value="azureblob" %s>Azure Blob Storage</option>
+							<option value="b2" %s>Backblaze B2</option>
+							<option value="box" %s>Box</option>
+							<option value="http" %s>HTTP/HTTPS</option>
+							<option value="local" %s>Local Filesystem</option>
 						</select>
+						<div id="cloudflare-link" style="display: none; margin-top: 0.5rem; font-size: 0.85rem;">
+							<a href="https://dash.cloudflare.com/?to=/:account/r2/api-tokens" target="_blank" style="color: #f6821f; font-weight: 600;">
+								☁️ Click here to get your Cloudflare R2 API Tokens
+							</a>
+						</div>
 					</div>
 					<div class="form-group">
 						<label>Configuration (JSON Key-Value Pairs)</label>
-						<textarea name="config" rows="6" placeholder='{"access_key_id": "...", "secret_access_key": "...", "region": "us-east-1"}'></textarea>
+						<textarea name="config" rows="8" placeholder='{"access_key_id": "...", "secret_access_key": "...", "region": "us-east-1"}'>%s</textarea>
 						<small>Refer to rclone documentation for each provider's required fields.</small>
 					</div>
-					<button type="submit" class="btn btn-primary">Add Remote</button>
+					<div style="display:flex; gap:1rem;">
+						<button type="submit" class="btn btn-primary">%s</button>
+						%s
+					</div>
 				</form>
+				<script>
+					const select = document.getElementById('provider-select');
+					const div = document.getElementById('cloudflare-link');
+					function updateLink() {
+						div.style.display = select.value === 's3' ? 'block' : 'none';
+					}
+					select.onchange = updateLink;
+					updateLink();
+				</script>
 			</section>
 		</div>
-	`)
+	`, formTitle, editAlias,
+		func() string {
+			if editAlias != "" {
+				return "readonly style='background:#1e293b; color:#94a3b8;'"
+			}
+			return ""
+		}(),
+		func() string {
+			if editAlias != "" {
+				return "<small>Alias cannot be changed during update.</small>"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "s3" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "drive" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "dropbox" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "sftp" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "azureblob" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "b2" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "box" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "http" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "local" {
+				return "selected"
+			}
+			return ""
+		}(),
+		editConfig, submitText,
+		func() string {
+			if editAlias != "" {
+				return "<a href='/' class='btn' style='background:#334155; color:white;'>Cancel</a>"
+			}
+			return ""
+		}())
 	s.tableWriter.EndTableList(w)
 }
 
@@ -254,13 +369,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		if parent == "." {
 			parent = ""
 		}
-		s.tableWriter.WriteHTMLRow(w, []string{
-			"<span class='badge badge-folder'>📁</span>",
-			fmt.Sprintf("<a href='/browse/%s/%s' style='font-weight:600;'>.. [ Parent Directory ]</a>", alias, parent),
-			"-",
-			"-",
-			"-",
-		})
+		fmt.Fprintf(w, "<tr><td><span class='badge badge-folder'>📁</span></td><td><a href='/browse/%s/%s' style='font-weight:600;'>.. [ Parent Directory ]</a></td><td>-</td><td>-</td><td>-</td></tr>", alias, parent)
 	}
 
 	for _, entry := range entries {
@@ -329,7 +438,7 @@ func createDefaultTemplates(dir string) {
 	// We only write if not exists to avoid overwriting user changes,
 	// but for row.html and foot.html which are critical and often missing, we ensure them.
 
-	headPath := dir + "/head.html"
+	headPath := dir + "/list_head.html"
 	if _, err := os.Stat(headPath); os.IsNotExist(err) {
 		os.WriteFile(headPath, []byte(`
 <!DOCTYPE html>
@@ -337,7 +446,8 @@ func createDefaultTemplates(dir string) {
 <head>
     <meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecureBrowse | Cloud File Manager</title>
+    <title>{{.}} | SecureBrowse</title>
+	<!-- UI Version 2.2 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
@@ -476,7 +586,7 @@ func createDefaultTemplates(dir string) {
 `), 0644)
 	}
 
-	footPath := dir + "/foot.html"
+	footPath := dir + "/list_foot.html"
 	if _, err := os.Stat(footPath); os.IsNotExist(err) {
 		os.WriteFile(footPath, []byte(`
     </main>

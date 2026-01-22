@@ -13,9 +13,9 @@ import (
 
 func main() {
 	// Load Config
-	cfg, err := config.LoadConfig("config.hcl")
+	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
-		log.Printf("Warning: Could not load config.hcl: %v", err)
+		log.Printf("Warning: Could not load config.json: %v", err)
 		// Fallback to defaults provided by LoadConfig internally if file missing,
 		// but here err means file existed but bad parse or other error.
 		// If file missing, LoadConfig currently returns defaults.

@@ -1,0 +1,18 @@
+2026/01/21 22:20:05 NOTICE: Port 8080 is busy, trying next...
+2026/01/21 22:20:05 NOTICE: 🚀 SecureBrowse starting on http://localhost:8081
+2026/01/21 22:20:12 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:12 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:20:12 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:12 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:20:48 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:48 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:20:48 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:48 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:20:59 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:59 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:20:59 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:20:59 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:21:10 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:21:10 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined
+2026/01/21 22:21:10 NOTICE: Error executing list_head.html: html/template: "list_head.html" is undefined
+2026/01/21 22:21:10 NOTICE: Error executing list_foot.html: html/template: "list_foot.html" is undefined

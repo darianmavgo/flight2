@@ -11,8 +11,8 @@ func TestAddCompellingCredentials(t *testing.T) {
 	// The user said: "add some fake but compelling credentials to secrets.db ... and then confirm that securebrowse can display those"
 	// This implies we should hit the real secrets.db and .secret.key.
 
-	dbPath := "/Users/darianhickman/Documents/flight2/secrets.db"
-	keyPath := "/Users/darianhickman/Documents/flight2/.secret.key"
+	dbPath := "secrets.db"
+	keyPath := ".secret.key"
 
 	svc, err := NewService(dbPath, keyPath)
 	if err != nil {

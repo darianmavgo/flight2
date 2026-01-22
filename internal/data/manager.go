@@ -12,6 +12,8 @@ import (
 
 	"flight2/internal/source"
 
+	"github.com/darianmavgo/mksqlite/converters/common"
+
 	"github.com/allegro/bigcache/v3"
 	"github.com/darianmavgo/mksqlite/converters"
 
@@ -108,7 +110,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			return "", err
 		}
 
-		conv, err := converters.Open("filesystem", f, nil)
+		conv, err := converters.Open("filesystem", f, &common.ConversionConfig{Verbose: m.verbose})
 		if err != nil {
 			f.Close()
 			tmpOut.Close()
@@ -116,7 +118,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			return "", fmt.Errorf("failed to open filesystem converter: %w", err)
 		}
 
-		err = converters.ImportToSQLite(conv, tmpOut, nil)
+		err = converters.ImportToSQLite(conv, tmpOut, &converters.ImportOptions{Verbose: m.verbose})
 		f.Close()
 		if err != nil {
 			tmpOut.Close()
@@ -185,7 +187,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 				return "", err
 			}
 
-			conv, err := converters.Open(driver, srcF, nil)
+			conv, err := converters.Open(driver, srcF, &common.ConversionConfig{Verbose: m.verbose})
 			if err != nil {
 				srcF.Close()
 				tmpOut.Close()
@@ -198,7 +200,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 				defer c.Close()
 			}
 
-			err = converters.ImportToSQLite(conv, tmpOut, nil)
+			err = converters.ImportToSQLite(conv, tmpOut, &converters.ImportOptions{Verbose: m.verbose})
 			srcF.Close()
 			if err != nil {
 				tmpOut.Close()

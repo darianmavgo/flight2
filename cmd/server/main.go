@@ -12,6 +12,10 @@ import (
 	"flight2/internal/data"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
+
+	"io"
+
+	"github.com/darianmavgo/banquet"
 )
 
 func main() {
@@ -23,13 +27,22 @@ func main() {
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		log.Printf("Warning: Could not load %s: %v", *configPath, err)
-		// Fallback to defaults provided by LoadConfig internally if file missing,
-		// but here err means file existed but bad parse or other error.
-		// If file missing, LoadConfig currently returns defaults.
-		// Let's assume we proceed if possible, but LoadConfig returns defaults on NotExist.
-		// If it's a parse error, we might want to exit?
-		// For now, let's respect env vars override or just fail if critical.
-		// Actually, let's respect env vars as overrides to config.
+	}
+
+	// Setup logging
+	os.MkdirAll("logs", 0755)
+	logFile, err := os.OpenFile("logs/app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		mw := io.MultiWriter(os.Stderr, logFile)
+		log.SetOutput(mw)
+		log.Printf("Logging to logs/app.log")
+	} else {
+		log.Printf("Warning: Failed to open log file: %v", err)
+	}
+
+	if cfg.Verbose {
+		banquet.SetVerbose(true)
+		log.Printf("Verbose mode enabled across repositories.")
 	}
 
 	// Env vars override
@@ -60,8 +73,6 @@ func main() {
 
 	// Initialize Server
 	srv := server.NewServer(dataManager, secretsService, cfg.TemplateDir, cfg.ServeFolder, cfg.Verbose, cfg.AutoSelectTb0)
-
-	log.Printf("Loaded configuration. SecretKey: %s", cfg.SecretKey)
 
 	startPort, _ := strconv.Atoi(cfg.Port)
 	if startPort == 0 {

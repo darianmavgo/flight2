@@ -242,3 +242,9 @@ require (
 	storj.io/picobuf v0.0.4 // indirect
 	storj.io/uplink v1.13.1 // indirect
 )
+
+replace github.com/darianmavgo/banquet => ../banquet
+
+replace github.com/darianmavgo/mksqlite => ../mksqlite
+
+replace github.com/darianmavgo/sqliter => ../sqliter

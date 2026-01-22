@@ -37,10 +37,12 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 		log.Printf("TemplateDir %s does not exist: %v", templateDir, err)
 	}
 	t := sqliter.LoadTemplates(templateDir)
+	sqliterCfg := sqliter.DefaultConfig()
+	sqliterCfg.Verbose = verbose
 	srv := &Server{
 		dataManager:   dm,
 		secrets:       ss,
-		tableWriter:   sqliter.NewTableWriter(t, sqliter.DefaultConfig()),
+		tableWriter:   sqliter.NewTableWriter(t, sqliterCfg),
 		templateDir:   templateDir,
 		serveFolder:   serveFolder,
 		verbose:       verbose,
@@ -280,7 +282,7 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 
 	s.tableWriter.StartTableList(w, "Flight2 Tables")
 	for _, name := range tables {
-		sqliter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name, "Table")
+		s.tableWriter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name, "Table")
 	}
 	s.tableWriter.EndTableList(w)
 }

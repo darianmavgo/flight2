@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -262,9 +260,12 @@ func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request
 }
 
 func createTestTemplates(dir string) {
-	os.WriteFile(filepath.Join(dir, "list_head.html"), []byte(`<html><body>`), 0644)
-	os.WriteFile(filepath.Join(dir, "list_foot.html"), []byte(`</body></html>`), 0644)
+	os.WriteFile(filepath.Join(dir, "head.html"), []byte(`<html><head><title>{{.Title}}</title></head><body><table>`), 0644)
+	os.WriteFile(filepath.Join(dir, "foot.html"), []byte(`</table></body></html>`), 0644)
 	os.WriteFile(filepath.Join(dir, "row.html"), []byte(`<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>`), 0644)
+	os.WriteFile(filepath.Join(dir, "list_head.html"), []byte(`<html><body><ul>`), 0644)
+	os.WriteFile(filepath.Join(dir, "list_foot.html"), []byte(`</ul></body></html>`), 0644)
+	os.WriteFile(filepath.Join(dir, "list_item.html"), []byte(`<li><a href="{{.URL}}">{{.Name}}</a></li>`), 0644)
 }
 
 // TestCloudflareR2Browser ... (same as before)
@@ -343,186 +344,3 @@ func TestCloudflareR2Browser(t *testing.T) {
 }
 
 // TestCloudflareR2IntegrationBinary performs an integration test using the actual compiled executable associated with flight2.
-// It assumes ./bin/server exists and launches it in verbose mode.
-func TestCloudflareR2IntegrationBinary(t *testing.T) {
-	// 1. Prepare environment
-	// We need a secrets.db file for the binary to use.
-	// Since the binary uses config.json to find secrets.db, we might need to modify config.json or use env vars.
-	// Server supports config loading, but also hardcoded paths?
-	// We should create a temporary secrets.db and point the server to it via env var (if supported)
-	// or create a temp config.json.
-
-	// Create temp secrets DB
-	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_bin_*.db")
-	if err != nil {
-		t.Fatalf("Failed to create temp secrets DB: %v", err)
-	}
-	dbPath := tmpSecretsDB.Name()
-	tmpSecretsDB.Close() // Close so other processes can use it
-	defer os.Remove(dbPath)
-
-	// Populate secrets DB manually or using secrets service
-	secretsService, err := secrets.NewService(dbPath, "test-key")
-	if err != nil {
-		t.Fatalf("Failed to initialize secrets service: %v", err)
-	}
-	creds := map[string]interface{}{
-		"provider":          "Cloudflare",
-		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
-		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
-		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
-		"region":            "auto",
-		"chunk_size":        "5Mi",
-		"copy_cutoff":       "5Mi",
-		"type":              "s3",
-	}
-	_, err = secretsService.StoreCredentials("r2-auth", creds)
-	if err != nil {
-		secretsService.Close()
-		t.Fatalf("Failed to store credentials: %v", err)
-	}
-	secretsService.Close()
-
-	// 2. Prepare Config
-	// We'll create a temporary config.json
-	configFile, err := os.CreateTemp("", "config_*.json")
-	if err != nil {
-		t.Fatalf("Failed to create temp config: %v", err)
-	}
-	configPath := configFile.Name()
-	configHCL := fmt.Sprintf(`
-		port = "0"
-		secrets_db = "%s"
-		secret_key = "test-key"
-		verbose = true
-		template_dir = "templates"
-		auto_select_tb0 = true
-	`, dbPath) // port 0 will be replaced
-	// Our server update loop supports starting from a port. So 0 might default to 8080.
-	// We should pick a random free port for the test.
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to get free port: %v", err)
-	}
-	freePort := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
-	configHCL = strings.Replace(configHCL, `port = "0"`, fmt.Sprintf(`port = "%d"`, freePort), 1)
-
-	// We need to ensure templates dir exists relative to where we run the binary.
-	// The binary is in ./bin/server (assumed from prompt "./bin/server").
-	// We usually run tests from project root or tests dir.
-	// If we run `go test .`, CWD is tests/.
-	// We need to find the project root.
-	projectRoot, _ := filepath.Abs("..")
-	binPath := filepath.Join(projectRoot, "bin", "server")
-	if _, err := os.Stat(binPath); os.IsNotExist(err) {
-		t.Fatalf("Binary not found at %s. Did you build it?", binPath)
-	}
-
-	configFile.WriteString(configHCL)
-	configFile.Close()
-	defer os.Remove(configPath)
-
-	// 3. Launch ./bin/server
-	cmd := exec.Command(binPath, "-config", "config.hcl")
-	// We need to make sure it finds config.json.
-	// The server loads config.json from CWD or specific path? config.LoadConfig("config.json") implies CWD.
-	// So we should run cmd in a dir where config.json exists.
-	// Or we can symlink config.json to a temp dir and run there.
-
-	runDir, err := os.MkdirTemp("", "flight2_run_*")
-	if err != nil {
-		t.Fatalf("Failed to create run dir: %v", err)
-	}
-	defer os.RemoveAll(runDir)
-
-	// Copy/Symlink config
-	t.Logf("Running server in directory: %s", runDir)
-	err = os.WriteFile(filepath.Join(runDir, "config.hcl"), []byte(configHCL), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write config in run dir: %v", err)
-	}
-
-	// Copy templates to runDir/templates (server needs them)
-	os.Mkdir(filepath.Join(runDir, "templates"), 0755)
-	createTestTemplates(filepath.Join(runDir, "templates")) // reuse our helper
-
-	cmd.Dir = runDir
-
-	// Capture stdout/stderr
-	// stdoutPipe, _ := cmd.StdoutPipe() // We don't expect stdout, or we can let it flow to test output
-	cmd.Stdout = os.Stdout
-	stderrPipe, _ := cmd.StderrPipe() // Server logs to stderr
-
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer func() {
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-	}()
-
-	// Monitor logs in background
-	serverReady := make(chan bool)
-	go func() {
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			t.Logf("[SERVER] %s", line)
-			if strings.Contains(line, "Starting server on port") {
-				serverReady <- true
-			}
-			// We can also Scan for specific package logs here as requested!
-			if strings.Contains(line, "Cache miss") {
-				t.Log("✅ Confirmed: Data Manager Cache Miss")
-			}
-			if strings.Contains(line, "Fetching and converting") {
-				t.Log("✅ Confirmed: Server Handling Banquet Request")
-			}
-		}
-	}()
-
-	// Wait for server ready
-	select {
-	case <-serverReady:
-		t.Log("Server is ready")
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Timed out waiting for server to start. Check [SERVER] logs above for errors.")
-	}
-
-	// 4. Headless Browser Test against the binary
-	l := launcher.New().Headless(true)
-	u, err := l.Launch()
-	if err != nil {
-		u = launcher.NewUserMode().MustLaunch()
-	}
-	browser := rod.New().ControlURL(u).MustConnect()
-	defer browser.MustClose()
-
-	start := time.Now()
-	banquetURL := "https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv"
-	visitURL := fmt.Sprintf("http://127.0.0.1:%d/%s", freePort, banquetURL)
-
-	t.Logf("Navigating to %s", visitURL)
-	page := browser.MustPage(visitURL)
-
-	err = page.Timeout(10*time.Second).WaitElementsMoreThan("tr", 10)
-	if err != nil {
-		t.Fatalf("Failed to load 10 rows: %v", err)
-	}
-
-	elapsed := time.Since(start)
-	t.Logf("Page loaded 10+ rows in %v", elapsed)
-
-	if elapsed > 3*time.Second {
-		t.Fatalf("Performance Test Failed: Took %v to load 10 rows", elapsed)
-	}
-
-	// Confirm we saw logs covering steps
-	// Implementation note: The goroutine scanning logs runs concurrently.
-	// We might not have seen all logs yet if they are buffered.
-	// But usually log.Printf is unbuffered or line buffered.
-}

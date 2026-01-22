@@ -40,7 +40,7 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 	srv := &Server{
 		dataManager:   dm,
 		secrets:       ss,
-		tableWriter:   sqliter.NewTableWriter(t),
+		tableWriter:   sqliter.NewTableWriter(t, sqliter.DefaultConfig()),
 		templateDir:   templateDir,
 		serveFolder:   serveFolder,
 		verbose:       verbose,
@@ -255,11 +255,11 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 		dbUrlPath = "/" + dbUrlPath
 	}
 
-	sqliter.StartTableList(w)
+	s.tableWriter.StartTableList(w, "Flight2 Tables")
 	for _, name := range tables {
 		sqliter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name)
 	}
-	sqliter.EndTableList(w)
+	s.tableWriter.EndTableList(w)
 }
 
 func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banquet) {
@@ -279,7 +279,7 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 		return
 	}
 
-	s.tableWriter.StartHTMLTable(w, columns)
+	s.tableWriter.StartHTMLTable(w, columns, bq.Table)
 
 	values := make([]interface{}, len(columns))
 	valuePtrs := make([]interface{}, len(columns))

@@ -12,14 +12,14 @@ import (
 	"github.com/rclone/rclone/fs/config/configmap"
 )
 
-// GetFileStream returns a stream of the file at the given sourceURL using the credentials.
-func GetFileStream(ctx context.Context, sourcePath string, creds map[string]interface{}) (io.ReadCloser, error) {
+// GetSourceFs creates an rclone Fs for the given path and credentials.
+func GetSourceFs(ctx context.Context, sourcePath string, creds map[string]interface{}) (fs.Fs, string, error) {
 	fsType, ok := creds["type"].(string)
 	if !ok {
 		if strings.HasPrefix(sourcePath, "http:") || strings.HasPrefix(sourcePath, "https:") {
 			fsType = "http"
 		} else {
-			return nil, fmt.Errorf("credentials missing 'type' field")
+			return nil, "", fmt.Errorf("credentials missing 'type' field")
 		}
 	}
 
@@ -43,16 +43,20 @@ func GetFileStream(ctx context.Context, sourcePath string, creds map[string]inte
 	// Find the backend
 	regInfo, err := fs.Find(fsType)
 	if err != nil {
-		return nil, fmt.Errorf("backend type '%s' not found: %w", fsType, err)
+		return nil, "", fmt.Errorf("backend type '%s' not found: %w", fsType, err)
 	}
 
-	// We split the sourcePath into parent and leaf.
 	// Rclone paths use forward slashes.
-	parent := path.Dir(sourcePath)
-	leaf := path.Base(sourcePath)
-
-	if parent == "." {
+	var parent, leaf string
+	if sourcePath == "" || sourcePath == "/" {
 		parent = ""
+		leaf = ""
+	} else {
+		parent = path.Dir(sourcePath)
+		leaf = path.Base(sourcePath)
+		if parent == "." {
+			parent = ""
+		}
 	}
 
 	// Name for the remote (arbitrary, internal use)
@@ -61,7 +65,17 @@ func GetFileStream(ctx context.Context, sourcePath string, creds map[string]inte
 	// Create Fs
 	fsrc, err := regInfo.NewFs(ctx, remoteName, parent, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create fs for path '%s': %w", parent, err)
+		return nil, "", fmt.Errorf("failed to create fs for path '%s': %w", parent, err)
+	}
+
+	return fsrc, leaf, nil
+}
+
+// GetFileStream returns a stream of the file at the given sourceURL using the credentials.
+func GetFileStream(ctx context.Context, sourcePath string, creds map[string]interface{}) (io.ReadCloser, error) {
+	fsrc, leaf, err := GetSourceFs(ctx, sourcePath, creds)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the object
@@ -77,4 +91,21 @@ func GetFileStream(ctx context.Context, sourcePath string, creds map[string]inte
 	}
 
 	return rc, nil
+}
+
+// ListEntries returns a list of files and directories at the given path.
+func ListEntries(ctx context.Context, sourcePath string, creds map[string]interface{}) (fs.DirEntries, error) {
+	fsrc, leaf, err := GetSourceFs(ctx, sourcePath, creds)
+	if err != nil {
+		return nil, err
+	}
+
+	// List the directory
+	// If sourcePath ends in '/', leaf will be empty or '.', so we list that.
+	entries, err := fsrc.List(ctx, leaf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list directory '%s': %w", leaf, err)
+	}
+
+	return entries, nil
 }

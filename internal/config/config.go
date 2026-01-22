@@ -14,20 +14,20 @@ type Config struct {
 	SecretsDB     string `hcl:"secrets_db,optional"`
 	SecretKey     string `hcl:"secret_key,optional"`
 	Verbose       bool   `hcl:"verbose,optional"`
-	AutoSelectTb0 bool   `hcl:"auto_select_tb0,optional,default:true"`
+	AutoSelectTb0 bool   `hcl:"auto_select_tb0,optional"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
-	var config Config
+	config := Config{
+		Port:          "8080",
+		TemplateDir:   "templates",
+		SecretsDB:     "secrets.db",
+		SecretKey:     ".secret.key",
+		AutoSelectTb0: true,
+	}
 
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		return &Config{
-			Port:          "8080",
-			TemplateDir:   "templates",
-			SecretsDB:     "secrets.db",
-			SecretKey:     ".secret.key",
-			AutoSelectTb0: true,
-		}, nil
+		return &config, nil
 	}
 
 	err := hclsimple.DecodeFile(filename, nil, &config)
@@ -35,7 +35,7 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("failed to load config file: %w", err)
 	}
 
-	// Set defaults if empty
+	// Double check empty strings if decoded from file (though hclsimple shouldn't overwrite if absent)
 	if config.Port == "" {
 		config.Port = "8080"
 	}

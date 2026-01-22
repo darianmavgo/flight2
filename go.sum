@@ -197,10 +197,10 @@ github.com/creasty/defaults v1.8.0 h1:z27FJxCAa0JKt3utc0sCImAEb+spPucmKoOdLHvHYK
 github.com/creasty/defaults v1.8.0/go.mod h1:iGzKe6pbEHnpMPtfDXZEr0NVxWnPTjb1bbDy08fPzYM=
 github.com/cronokirby/saferith v0.33.0 h1:TgoQlfsD4LIwx71+ChfRcIpjkw+RPOapDEVxa+LhwLo=
 github.com/cronokirby/saferith v0.33.0/go.mod h1:QKJhjoqUtBsXCAVEjw38mFqoi7DebT7kthcD7UzbnoA=
-github.com/darianmavgo/banquet v1.0.3 h1:dU6TXG1nfepcoh6V5wLHL4rbLkyAfZyNyXkzB2zLPOQ=
-github.com/darianmavgo/banquet v1.0.3/go.mod h1:keI4NAFCuDs7niaEMnSJhrcjr4NjyOoyxxUR0wGllV0=
-github.com/darianmavgo/mksqlite v1.0.1 h1:QTLgxZMe5HgVnIU6TC3FR3tdokxNHAxTpHwS4lMKSjw=
-github.com/darianmavgo/mksqlite v1.0.1/go.mod h1:mmkUAqNFC7lctXA3mRzm0WY4RSEZJhBO+Ub6YifOUwg=
+github.com/darianmavgo/banquet v1.0.4 h1:iRXneAey8etaD+GTxnNtAZcKfjKL0PzzxIotNUEFhto=
+github.com/darianmavgo/banquet v1.0.4/go.mod h1:keI4NAFCuDs7niaEMnSJhrcjr4NjyOoyxxUR0wGllV0=
+github.com/darianmavgo/mksqlite v1.0.2 h1:eV1kBSwY76MgXE0EIgZHn9KH+NKqzVuOc7ypEJfEBJw=
+github.com/darianmavgo/mksqlite v1.0.2/go.mod h1:rj5In0bTZov0ALjM9Cpu1s2+C9Q16i/vzuLKJ4smtv4=
 github.com/darianmavgo/sqliter v1.1.2 h1:ObNPVIwTfnd8ZKsHM04P/drn7uEjwasUD7FRYfyD9vg=
 github.com/darianmavgo/sqliter v1.1.2/go.mod h1:HBVwu6MxQLtUBYr7012nZdKy8lhizCiyx/jPbZjlyKA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

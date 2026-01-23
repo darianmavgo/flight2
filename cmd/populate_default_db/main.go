@@ -20,8 +20,8 @@ func main() {
 		log.Fatalf("Fatal Error: Could not load config.hcl: %v", err)
 	}
 
-	// 1. Read TEST_BANQUET.md
-	file, err := os.Open("TEST_BANQUET.md")
+	// 1. Read docs/TEST_BANQUET.md
+	file, err := os.Open("docs/TEST_BANQUET.md")
 	if err != nil {
 		log.Fatalf("Failed to open TEST_BANQUET.md: %v", err)
 	}

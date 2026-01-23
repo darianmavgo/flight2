@@ -127,6 +127,8 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /app/credentials/delete", s.handleDeleteCredential)
 	mux.HandleFunc("GET /app/browse/{alias}/{path...}", s.handleBrowse)
 	mux.HandleFunc("GET /app/view/{alias}/{path...}", s.handleView)
+	mux.HandleFunc("GET /app/test/banquet/", s.handleBanquetTestDB)
+	mux.HandleFunc("GET /app/test/banquet/{path...}", s.handleBanquetTestDB)
 	mux.HandleFunc("/app/credentials", s.handleCredentials)
 	mux.HandleFunc("/app/", s.handleAppIndex)
 	mux.HandleFunc("/", s.handleBanquet)
@@ -166,6 +168,10 @@ func (s *Server) handleAppIndex(w http.ResponseWriter, r *http.Request) {
             <li>
                 <a href="/app/credentials/manage">📡 Remote Management</a>
                 <div class="desc">Configure cloud storage providers (S3, Drive, Dropbox, SFTP).</div>
+            </li>
+            <li>
+                <a href="/app/test/banquet/">🍽️ Banquet Test DB</a>
+                <div class="desc">View columns and rows within the default test database.</div>
             </li>
             <li>
                 <a href="/app/debug/env">🔍 Debug Environment</a>
@@ -454,6 +460,30 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 	// So I SHOULD remove it after serving.
 	defer os.Remove(dbPath)
 
+	s.serveDatabase(w, r, bq, dbPath, bq.DataSetPath)
+}
+
+// handleBanquetTestDB serves the default database at /app/banquet/
+func (s *Server) handleBanquetTestDB(w http.ResponseWriter, r *http.Request) {
+	if s.defaultDB == "" {
+		http.Error(w, "Default database not configured", http.StatusNotFound)
+		return
+	}
+
+	bq, err := banquet.ParseNested(r.URL.String())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error parsing URL: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	table := r.PathValue("path")
+	bq.DataSetPath = s.defaultDB
+	bq.Table = table
+
+	s.serveDatabase(w, r, bq, s.defaultDB, "/app/test/banquet")
+}
+
+func (s *Server) serveDatabase(w http.ResponseWriter, r *http.Request, bq *banquet.Banquet, dbPath string, dbUrlPath string) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error opening DB: %v", err), http.StatusInternalServerError)
@@ -462,7 +492,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	if bq.Table == "sqlite_master" || bq.Table == "" {
-		s.listTables(w, r, db, bq.DataSetPath)
+		s.listTables(w, r, db, dbUrlPath)
 	} else {
 		s.queryTable(w, db, bq)
 	}

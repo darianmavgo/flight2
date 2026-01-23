@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
-	// 1. Read URLs from TEST_BANQUET.md
-	urls, err := readURLs("TEST_BANQUET.md")
+	// 1. Read URLs from docs/TEST_BANQUET.md
+	urls, err := readURLs("docs/TEST_BANQUET.md")
 	if err != nil {
 		log.Fatalf("Failed to read URLs: %v", err)
 	}

@@ -65,6 +65,11 @@ __debug_bin
 # === Logs ===
 logs/
 
+# === Secrets ===
+secrets.db
+key
+.secret/
+
 # === Project Specific ===
 *.zip
 *.json

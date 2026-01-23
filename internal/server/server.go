@@ -624,6 +624,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 					<div class="form-group">
 						<label>Alias Name</label>
 						<input type="text" name="alias" required value="%s" placeholder="e.g., my-s3-bucket" %s>
+						<input type="hidden" name="original_alias" value="%s">
 						%s
 					</div>
 					<div class="form-group">
@@ -668,14 +669,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		</div>
 	`, formTitle, editAlias,
 		func() string {
-			if editAlias != "" {
-				return "readonly style='background:#1e293b; color:#94a3b8;'"
-			}
+			// Alias is now editable!
 			return ""
 		}(),
+		editAlias, // For original_alias hidden input
 		func() string {
 			if editAlias != "" {
-				return "<small>Alias cannot be changed during update.</small>"
+				return "<small style='color:#94a3b8'>You can rename this alias.</small>"
 			}
 			return ""
 		}(),
@@ -745,6 +745,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 	alias := r.FormValue("alias")
+	originalAlias := r.FormValue("original_alias")
 	fsType := r.FormValue("type")
 	configStr := r.FormValue("config")
 
@@ -761,6 +762,15 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
 		return
+	}
+
+	// Rename: if originalAlias is set and different, delete the old one
+	if originalAlias != "" && originalAlias != alias {
+		s.log("Renaming credential: %s -> %s", originalAlias, alias)
+		if err := s.secrets.DeleteCredentials(originalAlias); err != nil {
+			s.log("Warning: failed to delete old alias %s during rename: %v", originalAlias, err)
+			// Don't fail the request, the new one is saved. just log it.
+		}
 	}
 
 	http.Redirect(w, r, "/app/credentials/manage", http.StatusSeeOther)

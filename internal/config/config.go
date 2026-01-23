@@ -17,6 +17,8 @@ type Config struct {
 	SecretKey     string `json:"secret_key" hcl:"secret_key,optional"`
 	Verbose       bool   `json:"verbose" hcl:"verbose,optional"`
 	AutoSelectTb0 bool   `json:"auto_select_tb0" hcl:"auto_select_tb0,optional"`
+	LocalOnly     bool   `json:"local_only" hcl:"local_only,optional"`
+	DefaultDB     string `json:"default_db" hcl:"default_db,optional"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
@@ -26,6 +28,8 @@ func LoadConfig(filename string) (*Config, error) {
 		SecretsDB:     "secrets.db",
 		SecretKey:     ".secret.key",
 		AutoSelectTb0: true,
+		LocalOnly:     true,
+		DefaultDB:     "app.sqlite",
 	}
 
 	if _, err := os.Stat(filename); os.IsNotExist(err) {

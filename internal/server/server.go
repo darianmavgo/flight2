@@ -1,23 +1,34 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"flight2/internal/data"
 	"flight2/internal/secrets"
+	"flight2/internal/source"
 
 	"github.com/darianmavgo/banquet"
 	"github.com/darianmavgo/sqliter/pkg/common"
 	"github.com/darianmavgo/sqliter/sqliter"
 	_ "github.com/mattn/go-sqlite3"
+
+	// Register all rclone backends
+	_ "github.com/rclone/rclone/backend/all"
+	"github.com/rclone/rclone/fs"
 )
 
 // Server handles serving data.
@@ -29,10 +40,53 @@ type Server struct {
 	serveFolder   string
 	verbose       bool
 	autoSelectTb0 bool
+	localOnly     bool
+	defaultDB     string
+	history       *RequestHistory
+}
+
+type RequestHistory struct {
+	mu    sync.Mutex
+	items []string
+	limit int
+}
+
+func NewRequestHistory(limit int) *RequestHistory {
+	return &RequestHistory{
+		items: make([]string, 0, limit),
+		limit: limit,
+	}
+}
+
+func (h *RequestHistory) Add(url string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// Deduplicate: remove if exists
+	for i, item := range h.items {
+		if item == url {
+			h.items = append(h.items[:i], h.items[i+1:]...)
+			break
+		}
+	}
+	h.items = append(h.items, url)
+	if len(h.items) > h.limit {
+		h.items = h.items[1:]
+	}
+}
+
+func (h *RequestHistory) GetRecent() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// Return copy in reverse order
+	res := make([]string, len(h.items))
+	for i, item := range h.items {
+		res[len(h.items)-1-i] = item
+	}
+	return res
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool) *Server {
+func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
 	if _, err := os.Stat(templateDir); err != nil {
 		log.Printf("TemplateDir %s does not exist: %v", templateDir, err)
 	}
@@ -47,6 +101,9 @@ func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveF
 		serveFolder:   serveFolder,
 		verbose:       verbose,
 		autoSelectTb0: autoSelectTb0,
+		localOnly:     localOnly,
+		defaultDB:     defaultDB,
+		history:       NewRequestHistory(20),
 	}
 	// Log a warning if the configured serveFolder does not exist
 	if serveFolder != "" {
@@ -65,10 +122,80 @@ func (s *Server) log(format string, args ...interface{}) {
 
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/debug/env", s.handleDebugEnv)
-	mux.HandleFunc("/credentials", s.handleCredentials)
+	mux.HandleFunc("GET /app/debug/env", s.handleDebugEnv)
+	mux.HandleFunc("GET /app/credentials/manage", s.handleIndex)
+	mux.HandleFunc("POST /app/credentials/manage", s.handleCreateCredential)
+	mux.HandleFunc("POST /app/credentials/delete", s.handleDeleteCredential)
+	mux.HandleFunc("GET /app/browse/{alias}/{path...}", s.handleBrowse)
+	mux.HandleFunc("GET /app/view/{alias}/{path...}", s.handleView)
+	mux.HandleFunc("/app/credentials", s.handleCredentials)
+	mux.HandleFunc("/app/", s.handleAppIndex)
 	mux.HandleFunc("/", s.handleBanquet)
+
+	if s.localOnly {
+		return s.localOnlyMiddleware(mux)
+	}
 	return mux
+}
+
+func (s *Server) handleAppIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/app" && r.URL.Path != "/app/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintln(w, `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flight2 Management</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; line-height: 1.6; }
+        .container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155; }
+        h1 { margin-top: 0; color: #818cf8; }
+        ul { list-style: none; padding: 0; }
+        li { margin-bottom: 1rem; }
+        a { color: #6366f1; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
+        a:hover { color: #818cf8; text-decoration: underline; }
+        .desc { color: #94a3b8; font-size: 0.9rem; margin-top: 0.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Flight2 Management</h1>
+        <ul>
+            <li>
+                <a href="/app/credentials/manage">📡 Remote Management</a>
+                <div class="desc">Configure cloud storage providers (S3, Drive, Dropbox, SFTP).</div>
+            </li>
+            <li>
+                <a href="/app/debug/env">🔍 Debug Environment</a>
+                <div class="desc">View server environment variables (Local use only).</div>
+            </li>
+        </ul>
+        <hr style="border: 0; border-top: 1px solid #334155; margin: 2rem 0;">
+        <p style="color: #94a3b8; font-size: 0.8rem; text-align: center;">Flight2 Server • Active and Optimal</p>
+    </div>
+</body>
+</html>`)
+}
+
+func (s *Server) localOnlyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remote := r.RemoteAddr
+		// r.RemoteAddr is usually host:port
+		host, _, err := net.SplitHostPort(remote)
+		if err != nil {
+			host = remote
+		}
+
+		if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+			s.log("Blocking non-local request from: %s", host)
+			http.Error(w, "Access denied: local only", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleDebugEnv shows environment variables sorted.
@@ -157,6 +284,9 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.log("Failed to re-parse URL: %v", err)
 		}
+	} else if (sourcePath == "" || sourcePath == "/") && s.defaultDB != "" {
+		// Serve DefaultDB at root
+		sourcePath = s.defaultDB
 	} else if (sourcePath == "" || sourcePath == "/") && s.serveFolder != "" {
 		// Handle ServeFolder if configured and path is root
 		sourcePath = s.serveFolder
@@ -181,6 +311,18 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 			}
 			sourcePath = joined
 		}
+
+		// Fallback to DefaultDB if local file not found
+		if s.defaultDB != "" && bq.User == nil && !strings.Contains(sourcePath, "://") && !strings.HasPrefix(sourcePath, "http") {
+			if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+				// If it's not a file, it might be a table in the default DB
+				if bq.Table == "" || bq.Table == "sqlite_master" {
+					bq.Table = sourcePath
+				}
+				sourcePath = s.defaultDB
+				s.log("Fallback: using table %q from default DB %s", bq.Table, sourcePath)
+			}
+		}
 	}
 
 	// Extract alias from userinfo
@@ -202,8 +344,18 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		s.log("Credentials found for alias: %s", alias)
 	} else {
 		creds = make(map[string]interface{})
-		// If we are serving from local folder, inject local type
+		// Inject local type if it's a local path or DefaultDB
+		isLocal := false
 		if s.serveFolder != "" && strings.HasPrefix(sourcePath, s.serveFolder) {
+			isLocal = true
+		} else if s.defaultDB != "" && sourcePath == s.defaultDB {
+			isLocal = true
+		} else if !strings.Contains(sourcePath, "://") && !strings.HasPrefix(sourcePath, "http") {
+			// Fallback for other local paths
+			isLocal = true
+		}
+
+		if isLocal {
 			creds["type"] = "local"
 		}
 	}
@@ -224,10 +376,75 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 	dbPath, err := s.dataManager.GetSQLiteDB(r.Context(), sourcePath, creds, alias)
 	if err != nil {
 		s.log("Error processing data: %v", err)
+
+		// IMPROVED ERROR HANDLING
+		// If fetch error and looking like a remote URL, suggest aliases
+		if strings.Contains(err.Error(), "fetch error") || strings.Contains(err.Error(), "failed to create fs") {
+			aliases, _ := s.secrets.ListAliases()
+			recent := s.history.GetRecent()
+
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connection Error</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; max-width: 800px; margin: 0 auto; }
+        .error { background: #fee2e2; color: #991b1b; padding: 1rem; border-radius: 8px; border: 1px solid #fca5a5; margin-bottom: 2rem; }
+        .card { background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; margin-bottom: 1.5rem; }
+        h2 { margin-top: 0; color: #818cf8; font-size: 1.25rem; }
+        ul { list-style: none; padding: 0; }
+        li { margin-bottom: 0.5rem; }
+        a { color: #38bdf8; text-decoration: none; word-break: break-all; }
+        a:hover { text-decoration: underline; }
+        code { background: #0f172a; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>⚠️ Unable to Access Resource</h1>
+    <div class="error">
+        <strong>Error:</strong> %v
+    </div>
+
+    <div class="card">
+        <h2>💡 Suggestion: Use a Credential Alias</h2>
+        <p>This URL appears to be remote. Try prepending a configured alias to the URL:</p>
+        <p>Format: <code>/&lt;alias&gt;@&lt;url&gt;</code></p>
+        
+        <h3>Available Aliases:</h3>
+        <ul>`, err)
+			for _, a := range aliases {
+				// Construct a suggested link using the current path if it looks like a URL
+				suggestion := fmt.Sprintf("/%s@%s", a, sourcePath)
+				fmt.Fprintf(w, "<li><a href='%s'>%s</a> (e.g. <code>/%s@...</code>)</li>", suggestion, a, a)
+			}
+			fmt.Fprintf(w, `
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>🕒 Recent Successful Requests</h2>
+        <ul>`)
+			for _, url := range recent {
+				fmt.Fprintf(w, "<li><a href='%s'>%s</a></li>", url, url)
+			}
+			fmt.Fprintf(w, `
+        </ul>
+    </div>
+</body>
+</html>`)
+			return
+		}
+
 		http.Error(w, fmt.Sprintf("Error processing data: %v", err), http.StatusInternalServerError)
 		return
 	}
 	s.log("Database ready at: %s", dbPath)
+
+	// Add to history if successful DB get (implies access worked)
+	// We use the full original URL (or close to it)
+	s.history.Add(r.URL.Path)
 	// No need to defer remove dbPath here because it's cached.
 	// But `writeTempFile` creates a temp file. The cache holds the bytes in memory (BigCache).
 	// Wait, my `GetSQLiteDB` writes a temp file from cache every time.
@@ -332,4 +549,365 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 
 	s.tableWriter.EndHTMLTable(w)
 	s.log("Finished response")
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	aliases, err := s.secrets.ListAliases()
+	if err != nil {
+		http.Error(w, "Failed to list credentials", http.StatusInternalServerError)
+		return
+	}
+
+	// Check for edit mode
+	editAlias := r.URL.Query().Get("edit")
+	var editType string
+	var editConfig string
+	if editAlias != "" {
+		creds, err := s.secrets.GetCredentials(editAlias)
+		if err == nil {
+			if t, ok := creds["type"].(string); ok {
+				editType = t
+				delete(creds, "type")
+			}
+			b, _ := json.MarshalIndent(creds, "", "  ")
+			editConfig = string(b)
+		}
+	}
+
+	s.tableWriter.StartTableList(w, "Flight2 Remotes")
+	fmt.Fprintf(w, `
+		<div class="container">
+			<section class="remotes">
+				<h2>📡 Configured Remotes</h2>
+				<table class="premium-table">
+					<thead>
+						<tr><th>Alias</th><th>Actions</th></tr>
+					</thead>
+					<tbody>`)
+
+	if len(aliases) == 0 {
+		fmt.Fprintf(w, "<tr><td colspan='2'>No remotes configured yet.</td></tr>")
+	} else {
+		for _, alias := range aliases {
+			fmt.Fprintf(w, `
+				<tr>
+					<td><strong>%s</strong></td>
+					<td>
+						<a href='/app/browse/%s/' class='btn btn-browse'>📂 Browse</a>
+						<a href='/app/credentials/manage?edit=%s' class='btn btn-view'>✏️ Edit</a>
+						<form action='/app/credentials/delete' method='POST' style='display:inline'>
+							<input type='hidden' name='alias' value='%s'>
+							<input type='submit' value='🗑️ Delete' class='btn btn-delete' onclick='return confirm("Are you sure?")'>
+						</form>
+					</td>
+				</tr>`, alias, alias, alias, alias)
+		}
+	}
+
+	formTitle := "➕ Add New Remote"
+	submitText := "Add Remote"
+	if editAlias != "" {
+		formTitle = "✏️ Edit Remote: " + editAlias
+		submitText = "Update Credential"
+	}
+
+	fmt.Fprintf(w, `
+					</tbody>
+				</table>
+			</section>
+
+			<hr class="separator">
+
+			<section class="add-remote">
+				<h2>%s</h2>
+				<form action="/app/credentials/manage" method="POST" class="credential-form">
+					<div class="form-group">
+						<label>Alias Name</label>
+						<input type="text" name="alias" required value="%s" placeholder="e.g., my-s3-bucket" %s>
+						%s
+					</div>
+					<div class="form-group">
+						<label>Provider Type</label>
+						<select name="type" required id="provider-select">
+							<option value="s3" %s>Cloudflare R2 / AWS S3</option>
+							<option value="drive" %s>Google Drive</option>
+							<option value="dropbox" %s>Dropbox</option>
+							<option value="sftp" %s>SFTP</option>
+							<option value="azureblob" %s>Azure Blob Storage</option>
+							<option value="b2" %s>Backblaze B2</option>
+							<option value="box" %s>Box</option>
+							<option value="http" %s>HTTP/HTTPS</option>
+							<option value="local" %s>Local Filesystem</option>
+						</select>
+						<div id="cloudflare-link" style="display: none; margin-top: 0.5rem; font-size: 0.85rem;">
+							<a href="https://dash.cloudflare.com/?to=/:account/r2/api-tokens" target="_blank" style="color: #f6821f; font-weight: 600;">
+								☁️ Click here to get your Cloudflare R2 API Tokens
+							</a>
+						</div>
+					</div>
+					<div class="form-group">
+						<label>Configuration (JSON Key-Value Pairs)</label>
+						<textarea name="config" rows="8" placeholder='{"access_key_id": "...", "secret_access_key": "...", "region": "us-east-1"}'>%s</textarea>
+						<small>Refer to rclone documentation for each provider's required fields.</small>
+					</div>
+					<div style="display:flex; gap:1rem;">
+						<button type="submit" class="btn btn-primary">%s</button>
+						%s
+					</div>
+				</form>
+				<script>
+					const select = document.getElementById('provider-select');
+					const div = document.getElementById('cloudflare-link');
+					function updateLink() {
+						div.style.display = select.value === 's3' ? 'block' : 'none';
+					}
+					select.onchange = updateLink;
+					updateLink();
+				</script>
+			</section>
+		</div>
+	`, formTitle, editAlias,
+		func() string {
+			if editAlias != "" {
+				return "readonly style='background:#1e293b; color:#94a3b8;'"
+			}
+			return ""
+		}(),
+		func() string {
+			if editAlias != "" {
+				return "<small>Alias cannot be changed during update.</small>"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "s3" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "drive" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "dropbox" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "sftp" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "azureblob" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "b2" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "box" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "http" {
+				return "selected"
+			}
+			return ""
+		}(),
+		func() string {
+			if editType == "local" {
+				return "selected"
+			}
+			return ""
+		}(),
+		editConfig, submitText,
+		func() string {
+			if editAlias != "" {
+				return "<a href='/app/credentials/manage' class='btn' style='background:#334155; color:white;'>Cancel</a>"
+			}
+			return ""
+		}())
+	s.tableWriter.EndTableList(w)
+}
+
+func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
+	alias := r.FormValue("alias")
+	fsType := r.FormValue("type")
+	configStr := r.FormValue("config")
+
+	creds := make(map[string]interface{})
+	if configStr != "" {
+		if err := json.Unmarshal([]byte(configStr), &creds); err != nil {
+			http.Error(w, "Invalid JSON in config: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	creds["type"] = fsType
+
+	_, err := s.secrets.StoreCredentials(alias, creds)
+	if err != nil {
+		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/app/credentials/manage", http.StatusSeeOther)
+
+	// Test auth in background
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		s.log("🔍 [AUTH TEST] Verifying remote '%s'...", alias)
+		_, err := source.ListEntries(ctx, "", creds)
+		if err != nil {
+			s.log("❌ [AUTH TEST] Remote '%s' FAILED: %v", alias, err)
+		} else {
+			s.log("✅ [AUTH TEST] Remote '%s' is AUTHENTICATED", alias)
+		}
+	}()
+}
+
+func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
+	alias := r.FormValue("alias")
+	if alias == "" {
+		http.Error(w, "Alias required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.secrets.DeleteCredentials(alias); err != nil {
+		http.Error(w, "Failed to delete credential", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/app/credentials/manage", http.StatusSeeOther)
+}
+
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	alias := r.PathValue("alias")
+	relPath := r.PathValue("path")
+
+	creds, err := s.secrets.GetCredentials(alias)
+	if err != nil {
+		http.Error(w, "Remote not found", http.StatusNotFound)
+		return
+	}
+
+	s.listingLogic(w, r, alias, relPath, creds)
+}
+
+func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias string, relPath string, creds map[string]interface{}) {
+	entries, err := source.ListEntries(r.Context(), relPath, creds)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list entries: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Sort entries: directories first, then files
+	sort.Slice(entries, func(i, j int) bool {
+		_, iIsDir := entries[i].(fs.Directory)
+		_, jIsDir := entries[j].(fs.Directory)
+		if iIsDir && !jIsDir {
+			return true
+		}
+		if !iIsDir && jIsDir {
+			return false
+		}
+		return entries[i].Remote() < entries[j].Remote()
+	})
+
+	s.tableWriter.StartTableList(w, "Browse - "+alias)
+	fmt.Fprintf(w, "<div class='container'>")
+	fmt.Fprintf(w, "<h2>📂 Browsing: %s <span style='color:var(--text-muted); font-size: 0.9rem; margin-left: 0.5rem;'>/%s</span></h2>", alias, relPath)
+
+	// Determine base path for links
+	basePath := "/app/browse/" + alias
+	viewPath := "/app/view/" + alias
+
+	cols := []string{"Type", "Name", "Size", "Modified", "Actions"}
+	s.tableWriter.StartHTMLTable(w, cols, "")
+
+	// Add ".." link if not at root
+	if relPath != "" && relPath != "." {
+		parent := path.Dir(strings.TrimSuffix(relPath, "/"))
+		if parent == "." {
+			parent = ""
+		}
+		fmt.Fprintf(w, "<tr><td><span class='badge badge-folder'>📁</span></td><td><a href='%s/%s' style='font-weight:600;'>.. [ Parent Directory ]</a></td><td>-</td><td>-</td><td>-</td></tr>", basePath, parent)
+	}
+
+	for _, entry := range entries {
+		name := path.Base(entry.Remote())
+		fullPath := entry.Remote()
+
+		var icon, sizeStr, modified, actions string
+		if _, ok := entry.(fs.Directory); ok {
+			icon = "<span class='badge badge-folder'>📁</span>"
+			sizeStr = "-"
+			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
+			actions = fmt.Sprintf("<a href='%s/%s' class='btn btn-browse'>📂 Open</a>", basePath, fullPath)
+		} else {
+			icon = "<span class='badge badge-file'>📄</span>"
+			sizeStr = formatSize(entry.Size())
+			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
+			// For files, we offer "View" and if it's a known database type, "Query"
+			ext := strings.ToLower(path.Ext(fullPath))
+			queryAction := ""
+			if ext == ".db" || ext == ".sqlite" || ext == ".sqlite3" || ext == ".csv" || ext == ".xlsx" || ext == ".json" {
+				queryAction = fmt.Sprintf("<a href='/%s@%s/' class='btn btn-primary'>📊 Query</a>", alias, fullPath)
+			}
+			actions = fmt.Sprintf("%s <a href='%s/%s' target='_blank' class='btn btn-view'>👁️ View</a>", queryAction, viewPath, fullPath)
+		}
+
+		fmt.Fprintf(w, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", icon, name, sizeStr, modified, actions)
+	}
+
+	s.tableWriter.EndHTMLTable(w)
+	fmt.Fprintf(w, "</div>")
+	s.tableWriter.EndTableList(w)
+}
+
+func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
+	alias := r.PathValue("alias")
+	relPath := r.PathValue("path")
+
+	creds, err := s.secrets.GetCredentials(alias)
+	if err != nil {
+		http.Error(w, "Remote not found", http.StatusNotFound)
+		return
+	}
+
+	rc, err := source.GetFileStream(r.Context(), relPath, creds)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rc.Close()
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(relPath)))
+	io.Copy(w, rc)
+}
+
+func formatSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("% d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

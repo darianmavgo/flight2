@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -9,23 +10,25 @@ import (
 func TestLoadConfig(t *testing.T) {
 	// Create a temp config file
 	content := `
-{
-  "port": "9090",
-  "serve_folder": "/tmp/data"
-}
+port = "9090"
+serve_folder = "/tmp/data"
 `
-	tmpFile, err := os.CreateTemp("", "config_test_*.hcl")
-	if err != nil {
+	// Use test_output directory
+	testOutputDir := "../../test_output"
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Fatalf("Failed to create test_output dir: %v", err)
+	}
+	configPath := filepath.Join(testOutputDir, "config_test.hcl")
+
+	// Clean up before test (optional)
+	os.Remove(configPath)
+	defer os.Remove(configPath)
+
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.Write([]byte(content)); err != nil {
-		t.Fatal(err)
-	}
-	tmpFile.Close()
-
-	cfg, err := LoadConfig(tmpFile.Name())
+	cfg, err := LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}

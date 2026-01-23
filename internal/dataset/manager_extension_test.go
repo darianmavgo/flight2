@@ -10,20 +10,22 @@ import (
 // Type: Integration Test
 func TestManager_GetSQLiteDB_ExtensionResolution(t *testing.T) {
 	// Create a temp directory to simulate data folder
-	tempDir, err := os.MkdirTemp("", "flight2_data_test")
-	if err != nil {
-		t.Fatal(err)
+	// Use test_output for temp dir
+	testOutputDir, _ := filepath.Abs("../../test_output")
+	tempDir := filepath.Join(testOutputDir, "tmp_ext_test")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	// Create a csv file: testfile.csv
 	csvPath := filepath.Join(tempDir, "testfile.csv")
-	err = os.WriteFile(csvPath, []byte("id,name\n1,Test"), 0644)
+	err := os.WriteFile(csvPath, []byte("id,name\n1,Test"), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	mgr, err := NewManager(true, t.TempDir())
+	mgr, err := NewManager(true, filepath.Join(testOutputDir, "cache"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,18 +3,25 @@ package dataset
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 // Mocking source fetch or just testing logic?
-// Since `internal/data` depends on `internal/source` which depends on `rclone`,
+// Since `internal/dataset` depends on `internal/source` which depends on `rclone`,
 // a true unit test is hard without mocking the source.
 // However, we can test with a local file using rclone "local" backend.
 
 // Type: Integration Test
 func TestManager_GetSQLiteDB_LocalFile(t *testing.T) {
 	// Create a dummy CSV file
-	f, err := os.CreateTemp("", "test*.csv")
+	// Ensure test_output exists
+	testOutputDir, _ := filepath.Abs("../../test_output")
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Fatalf("Failed to create test_output: %v", err)
+	}
+
+	f, err := os.CreateTemp(testOutputDir, "test*.csv")
 	if err != nil {
 		t.Fatal(err)
 	}

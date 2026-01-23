@@ -1,17 +1,20 @@
 package main
 
 import (
+	"flight2/internal/config"
 	"flight2/internal/secrets"
 	"log"
 )
 
 func main() {
-	// Paths from config.hcl
-	dbPath := "secrets.db"
-	keyPath := "key" // explicitly using "key" as per config.hcl
+	// Load Config to get paths
+	cfg, err := config.LoadConfig("config.hcl")
+	if err != nil {
+		log.Fatalf("Fatal Error: Could not load config.hcl: %v", err)
+	}
 
 	// Initialize Secrets Manager
-	secretsService, err := secrets.NewService(dbPath, keyPath)
+	secretsService, err := secrets.NewService(cfg.UserSecretsDB, cfg.SecretKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize secrets service: %v", err)
 	}

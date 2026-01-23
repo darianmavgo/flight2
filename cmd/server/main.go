@@ -12,6 +12,7 @@ import (
 	"flight2/internal/dataset"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
+	"flight2/internal/source"
 
 	"io"
 
@@ -59,6 +60,9 @@ func main() {
 		log.Fatalf("Failed to initialize secrets service: %v", err)
 	}
 	defer secretsService.Close()
+
+	// Initialize Source/Rclone VFS Cache
+	source.Init(cfg.CacheDir)
 
 	// Initialize Data Manager (BigCache + MkSQLite)
 	dataManager, err := dataset.NewManager(cfg.Verbose, cfg.CacheDir)

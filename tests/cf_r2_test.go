@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"flight2/internal/data"
 	"flight2/internal/dataset"
 	"flight2/internal/secrets"
 
@@ -32,19 +31,25 @@ var useTempPaths = flag.Bool("use-temp-paths", false, "Use temporary paths for t
 
 func getTestConfig(t *testing.T) (*config.Config, func()) {
 	if *useTempPaths {
-		tmpDir := t.TempDir()
+		// Use test_output subdirectory for temp paths
+		tmpDir := filepath.Join("..", "test_output", "tmp_run_"+time.Now().Format("20060102150405"))
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
+			t.Fatalf("Failed to create temp dir in test_output: %v", err)
+		}
 		return &config.Config{
-			Port:          "0",
-			UserSecretsDB: filepath.Join(tmpDir, "test_secrets.db"),
-			SecretKey:     "test-key", // In-memory key for temp
-			TemplateDir:   filepath.Join(tmpDir, "templates"),
-			ServeFolder:   tmpDir,
-			CacheDir:      filepath.Join(tmpDir, "cache"),
-			Verbose:       true,
-			DefaultDB:     filepath.Join(tmpDir, "app.sqlite"),
-			AutoSelectTb0: true,
-			LocalOnly:     true,
-		}, func() {}
+				Port:          "0",
+				UserSecretsDB: filepath.Join(tmpDir, "test_secrets.db"),
+				SecretKey:     "test-key", // In-memory key for temp
+				TemplateDir:   filepath.Join(tmpDir, "templates"),
+				ServeFolder:   tmpDir,
+				CacheDir:      filepath.Join(tmpDir, "cache"),
+				Verbose:       true,
+				DefaultDB:     filepath.Join(tmpDir, "app.sqlite"),
+				AutoSelectTb0: true,
+				LocalOnly:     true,
+			}, func() {
+				os.RemoveAll(tmpDir) // Clean up this specific run folder
+			}
 	}
 
 	// Load real config
@@ -52,51 +57,56 @@ func getTestConfig(t *testing.T) (*config.Config, func()) {
 	if err != nil {
 		// Fallback to default mostly
 		t.Logf("Failed to load ../config.hcl: %v. Using defaults with relative paths.", err)
-		return &config.Config{
+		cfg = &config.Config{
 			Port:          "0",
-			UserSecretsDB: "../user_secrets.db",
-			SecretKey:     "../.secret.key",
-			TemplateDir:   "../templates",
-			CacheDir:      "../cache",
+			UserSecretsDB: "user_secrets.db",
+			SecretKey:     ".secret.key",
+			TemplateDir:   "templates",
+			CacheDir:      "cache",
 			Verbose:       true,
-			DefaultDB:     "../app.sqlite",
-		}, func() {}
-	}
-
-	// Fix relative paths to be relative to test dir ??
-	// config.hcl paths are relative to root.
-	// Tests run in flight2/tests.
-	// We need to resolve them.
-	resolve := func(path string) string {
-		if filepath.IsAbs(path) {
-			return path
+			DefaultDB:     "app.sqlite",
 		}
-		return filepath.Join("..", path)
 	}
-	cfg.UserSecretsDB = resolve(cfg.UserSecretsDB)
-	// SecretKey often just a string or file path? Config says SecretKey string.
-	// secrets.NewService takes a file path or string?
-	// The real code uses .secret.key file content? No, secrets.NewService takes key string or path?
-	// Let's check: secrets.NewService(dbPath, secretKey string).
-	// In main.go: secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
-	// If cfg.SecretKey is a file path, NewService handles it?
-	// Let's assume it's a file path for now since typical usages show ".secret.key".
-	// But `secrets.NewService` reads the file if it exists? or uses string as key?
-	// Main.go: secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
 
-	// Actually, careful: if we use real DB, we might mess it up.
-	// But the user ASKED to use permanent paths.
+	// Redirect artifacts to ../test_output
+	testOutputDir, _ := filepath.Abs("../test_output")
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Logf("Failed to create test_output dir: %v", err)
+	}
+
+	// Force rclone to use test_output
+	os.Setenv("RCLONE_CACHE_DIR", filepath.Join(testOutputDir, "test_rclone_cache"))
+
+	cfg.UserSecretsDB = filepath.Join(testOutputDir, "user_secrets.db")
+	cfg.SecretKey = filepath.Join(testOutputDir, "secret.key")
+	cfg.CacheDir = filepath.Join(testOutputDir, "cache")
+	cfg.DefaultDB = filepath.Join(testOutputDir, "app.sqlite")
+
+	// Resolve TemplateDir relative to tests dir if it's relative
+	if !filepath.IsAbs(cfg.TemplateDir) {
+		cfg.TemplateDir = filepath.Join("..", cfg.TemplateDir)
+	}
 
 	return cfg, func() {}
 }
 
 // TestCloudflareR2EndToEnd performs an end-to-end test of the Cloudflare R2 integration.
-// ... (code omitted for brevity, same as before)
+// It verifies that we can:
+// 1. Configure Cloudflare R2 credentials (mocked/aliased).
+// 2. Parse a banquet URL pointing to R2.
+// 3. Automatically fetch and convert the remote CSV to local SQLite.
+// 4. Query the resulting SQLite database.
+//
 // URL: https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv
 // Credential Alias: r2-auth
 // Type: Integration Test
 func TestCloudflareR2EndToEnd(t *testing.T) {
-	// ... (content of TestCloudflareR2EndToEnd, copied from original view_file)
+	// This test requires internet access and valid credentials if we weren't mocking.
+	// However, since we are testing the logic assuming Rclone works, we can try to rely on real Rclone if configured,
+	// or skip if no credentials.
+	// For this specific test URL, the bucket is likely private.
+	// Use the hardcoded credentials from the prompt for the "r2-auth" alias.
+
 	// 1. Setup Credentials
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
@@ -213,9 +223,7 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 	}
 }
 
-// ... (StartTestServer and TestServerWrapper omitted for brevity, logic remains same)
 func StartTestServer(t *testing.T, secretsService *secrets.Service) (string, func()) {
-	// ... (same as before)
 	// Use cfg for templates if not temp
 	cfg, _ := getTestConfig(t)
 	// We handle cleanup here because this function returns a cleanup func too.
@@ -223,26 +231,19 @@ func StartTestServer(t *testing.T, secretsService *secrets.Service) (string, fun
 	// Actually it returns func(){}.
 	// If it returned cleanup for temp paths, we should incorporate it.
 
-	var tmpDir string
-	if *useTempPaths {
-		var err error
-		tmpDir, err = os.MkdirTemp("", "templates")
-		if err != nil {
-			t.Fatalf("Failed to create temp template dir: %v", err)
-		}
-		createTestTemplates(tmpDir)
-	} else {
-		// Use temp templates regardless for consistent test HTML, but logging config usage
-		var err error
-		tmpDir, err = os.MkdirTemp("", "templates")
-		if err != nil {
-			t.Fatalf("Failed to create temp template dir: %v", err)
-		}
-		createTestTemplates(tmpDir)
+	// Use test_output/test_templates
+	tmpDir := filepath.Join("..", "test_output", "test_templates")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		t.Fatalf("Failed to create test templates dir: %v", err)
+	}
+	createTestTemplates(tmpDir)
+
+	if !*useTempPaths {
+		// Log usage
 	}
 	tpl := sqliter.LoadTemplates(tmpDir)
 
-	dm, err := data.NewManager(cfg.Verbose, cfg.CacheDir)
+	dm, err := dataset.NewManager(cfg.Verbose, cfg.CacheDir)
 	if err != nil {
 		t.Fatalf("Failed to create data manager: %v", err)
 	}
@@ -278,7 +279,6 @@ type TestServerWrapper struct {
 }
 
 func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request) {
-	// ... (same as before)
 	rawPath := strings.TrimPrefix(r.URL.Path, "/")
 	if strings.Contains(rawPath, ":/") && !strings.Contains(rawPath, "://") {
 		rawPath = strings.Replace(rawPath, ":/", "://", 1)
@@ -360,11 +360,10 @@ func createTestTemplates(dir string) {
 	os.WriteFile(filepath.Join(dir, "list_item.html"), []byte(`<li><a href="{{.URL}}">{{.Name}}</a></li>`), 0644)
 }
 
-// TestCloudflareR2Browser ... (same as before)
-// Type: E2E Test (Browser)
+// TestCloudflareR2Browser performs a browser-based E2E test.
 // Type: E2E Test (Browser)
 func TestCloudflareR2Browser(t *testing.T) {
-	// ... (same content as TestCloudflareR2Browser)
+	// 1. Setup Credentials
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
 		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",

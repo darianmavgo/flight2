@@ -23,7 +23,7 @@ func TestHandleDebugEnv(t *testing.T) {
 	s := &Server{}
 	router := s.Router()
 
-	req, err := http.NewRequest("GET", "/debug/env", nil)
+	req, err := http.NewRequest("GET", "/app/debug/env", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +46,12 @@ func TestHandleDebugEnv(t *testing.T) {
 
 // Mock or create a real helper to setup DB
 func setupTestDB(t *testing.T, tableNames []string) *sql.DB {
-	// Use a temp file for DB
-	f, err := os.CreateTemp("", "testdb_*.sqlite")
+	// Use test_output for DB
+	testOutputDir := "../../test_output"
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Fatalf("Failed to create test_output dir: %v", err)
+	}
+	f, err := os.CreateTemp(testOutputDir, "testdb_*.sqlite")
 	if err != nil {
 		t.Fatalf("Failed to create temp db: %v", err)
 	}

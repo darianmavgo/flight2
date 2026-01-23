@@ -5,12 +5,21 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"flight2/internal/config"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
+	// 0. Load Config
+	cfg, err := config.LoadConfig("config.hcl")
+	if err != nil {
+		log.Fatalf("Fatal Error: Could not load config.hcl: %v", err)
+	}
+
 	// 1. Read TEST_BANQUET.md
 	file, err := os.Open("TEST_BANQUET.md")
 	if err != nil {
@@ -31,11 +40,18 @@ func main() {
 		log.Fatalf("Error reading TEST_BANQUET.md: %v", err)
 	}
 
-	// 2. Create/Open app.sqlite
-	os.Remove("app.sqlite") // Start fresh
-	db, err := sql.Open("sqlite3", "app.sqlite")
+	// 2. Create/Open app.sqlite from config
+	dbPath := cfg.DefaultDB
+	os.Remove(dbPath) // Start fresh
+
+	// Ensure directory exists
+	if dir := filepath.Dir(dbPath); dir != "." {
+		os.MkdirAll(dir, 0755)
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatalf("Failed to open database %s: %v", dbPath, err)
 	}
 	defer db.Close()
 

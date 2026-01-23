@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/darianmavgo/banquet v1.0.4
-	github.com/darianmavgo/mksqlite v1.0.2
+	github.com/darianmavgo/mksqlite v1.0.4
 	github.com/darianmavgo/sqliter v1.1.2
 	github.com/go-rod/rod v0.116.2
 	github.com/hashicorp/hcl/v2 v2.24.0

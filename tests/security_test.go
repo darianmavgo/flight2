@@ -3,6 +3,8 @@ package tests
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"flight2/internal/dataset"
@@ -14,7 +16,11 @@ import (
 // Type: Unit Test
 func TestLocalOnlyRestriction(t *testing.T) {
 	// Setup mock services
-	dm, _ := dataset.NewManager(false, t.TempDir())
+
+	// Use test_output/cache
+	cacheDir := filepath.Join("..", "test_output", "cache")
+	os.MkdirAll(cacheDir, 0755)
+	dm, _ := dataset.NewManager(false, cacheDir)
 	// We don't need a real secrets service for this test as we only care about the middleware
 	ss, _ := secrets.NewService(":memory:", "test-key")
 	defer ss.Close()

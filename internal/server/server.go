@@ -28,7 +28,6 @@ import (
 
 	// Register all rclone backends
 	_ "github.com/rclone/rclone/backend/all"
-	"github.com/rclone/rclone/fs"
 )
 
 // Server handles serving data.
@@ -830,15 +829,15 @@ func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias stri
 
 	// Sort entries: directories first, then files
 	sort.Slice(entries, func(i, j int) bool {
-		_, iIsDir := entries[i].(fs.Directory)
-		_, jIsDir := entries[j].(fs.Directory)
+		iIsDir := entries[i].IsDir()
+		jIsDir := entries[j].IsDir()
 		if iIsDir && !jIsDir {
 			return true
 		}
 		if !iIsDir && jIsDir {
 			return false
 		}
-		return entries[i].Remote() < entries[j].Remote()
+		return entries[i].Name() < entries[j].Name()
 	})
 
 	s.tableWriter.StartTableList(w, "Browse - "+alias)
@@ -862,19 +861,19 @@ func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias stri
 	}
 
 	for _, entry := range entries {
-		name := path.Base(entry.Remote())
-		fullPath := entry.Remote()
+		name := entry.Name()
+		fullPath := path.Join(relPath, name)
 
 		var icon, sizeStr, modified, actions string
-		if _, ok := entry.(fs.Directory); ok {
+		if entry.IsDir() {
 			icon = "<span class='badge badge-folder'>📁</span>"
 			sizeStr = "-"
-			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
+			modified = entry.ModTime().Format("2006-01-02 15:04:05")
 			actions = fmt.Sprintf("<a href='%s/%s' class='btn btn-browse'>📂 Open</a>", basePath, fullPath)
 		} else {
 			icon = "<span class='badge badge-file'>📄</span>"
 			sizeStr = formatSize(entry.Size())
-			modified = entry.ModTime(r.Context()).Format("2006-01-02 15:04:05")
+			modified = entry.ModTime().Format("2006-01-02 15:04:05")
 			// For files, we offer "View" and if it's a known database type, "Query"
 			ext := strings.ToLower(path.Ext(fullPath))
 			queryAction := ""

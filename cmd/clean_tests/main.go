@@ -14,7 +14,7 @@ import (
 func main() {
 	configPath := flag.String("config", "config.hcl", "Path to config file")
 	dryRun := flag.Bool("dry-run", false, "Preview changes without deleting")
-	rootPath := flag.String("root", ".", "Root directory to clean")
+	rootPath := flag.String("root", "test_output", "Root directory to clean")
 	flag.Parse()
 
 	// Load Config to check for protected paths

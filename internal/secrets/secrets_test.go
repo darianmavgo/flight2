@@ -3,6 +3,7 @@ package secrets
 import (
 	"flag"
 	"flight2/internal/config"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -11,8 +12,19 @@ var useTempPaths = flag.Bool("use-temp-paths", false, "Use temporary paths for t
 
 func getTestPaths(t *testing.T) (string, string) {
 	if *useTempPaths {
-		tmpDB := filepath.Join(t.TempDir(), "test_secrets.db")
-		tmpKey := filepath.Join(t.TempDir(), "test.key")
+		testOutputDir := "../../test_output"
+		if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+			t.Fatalf("Failed to create test_output dir: %v", err)
+		}
+		// Create unique temp file inside test_output
+		tmpDBFile, _ := os.CreateTemp(testOutputDir, "test_secrets_*.db")
+		tmpKeyFile, _ := os.CreateTemp(testOutputDir, "test_key_*.key")
+		tmpDB := tmpDBFile.Name()
+		tmpKey := tmpKeyFile.Name()
+		tmpDBFile.Close()
+		tmpKeyFile.Close()
+		os.Remove(tmpKey) // Remove empty file so NewService generates key
+
 		return tmpDB, tmpKey
 	}
 
@@ -24,6 +36,9 @@ func getTestPaths(t *testing.T) (string, string) {
 		if !filepath.IsAbs(db) {
 			db = filepath.Join("../..", db)
 		}
+		// Ensure directory exists
+		os.MkdirAll(filepath.Dir(db), 0755)
+
 		key := cfg.SecretKey
 		if !filepath.IsAbs(key) {
 			key = filepath.Join("../..", key)
@@ -114,8 +129,18 @@ func TestAddCompellingCredentials(t *testing.T) {
 
 // Type: Unit Test
 func TestSecrets(t *testing.T) {
-	dbPath, keyPath := getTestPaths(t)
-	// Only remove if we are using temp paths, otherwise we might delete real data!
+	// Use explicit temp paths for isolation in test_output
+	testOutputDir := "../../test_output"
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Fatalf("Failed to create test_output dir: %v", err)
+	}
+	tmpDBFile, _ := os.CreateTemp(testOutputDir, "test_secrets_*.db")
+	tmpKeyFile, _ := os.CreateTemp(testOutputDir, "test_key_*.key")
+	dbPath := tmpDBFile.Name()
+	keyPath := tmpKeyFile.Name()
+	tmpDBFile.Close()
+	tmpKeyFile.Close()
+	os.Remove(keyPath) // Remove empty file so NewService generates key
 
 	svc, err := NewService(dbPath, keyPath)
 	if err != nil {

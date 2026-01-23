@@ -70,7 +70,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 
 	// Include alias in cache key to prevent cross-user leaks
 	if m.verbose {
-		log.Printf("🔹 [CACHE KEY] Generaring key from: Alias=[%s] SourcePath=[%s]", alias, sourcePath)
+		log.Printf("🔹 [CACHE KEY] Generating key from: Alias=[%s] SourcePath=[%s]", alias, sourcePath)
 	}
 	key := fmt.Sprintf("%s:%s", alias, sourcePath)
 
@@ -80,7 +80,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 		if m.verbose {
 			fmt.Println("🟢 [CACHE HIT] (Memory) Serving from RAM")
 		}
-		return writeTempFile(entry)
+		return m.writeTempFile(entry)
 	}
 
 	// 2. Check Disk Cache
@@ -96,7 +96,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			}
 			// Update memory cache
 			m.cache.Set(key, data)
-			return writeTempFile(data)
+			return m.writeTempFile(data)
 		}
 	}
 
@@ -106,7 +106,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 	}
 
 	// Prepare output file
-	tmpOut, err := os.CreateTemp("", "flight2_db_*.sqlite")
+	tmpOut, err := os.CreateTemp(m.cacheDir, "flight2_db_*.sqlite")
 	if err != nil {
 		return "", err
 	}
@@ -160,7 +160,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 
 		ext := strings.ToLower(filepath.Ext(sourcePath))
 
-		tmpSource, err := os.CreateTemp("", "flight2_source_*"+ext)
+		tmpSource, err := os.CreateTemp(m.cacheDir, "flight2_source_*"+ext)
 		if err != nil {
 			tmpOut.Close()
 			os.Remove(tmpOutName)
@@ -277,8 +277,8 @@ func getDriver(ext string) string {
 	return ""
 }
 
-func writeTempFile(data []byte) (string, error) {
-	f, err := os.CreateTemp("", "flight2_cache_*.sqlite")
+func (m *Manager) writeTempFile(data []byte) (string, error) {
+	f, err := os.CreateTemp(m.cacheDir, "flight2_cache_*.sqlite")
 	if err != nil {
 		return "", err
 	}

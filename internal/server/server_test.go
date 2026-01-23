@@ -11,6 +11,7 @@ import (
 	"github.com/darianmavgo/sqliter/sqliter"
 )
 
+// Type: Unit Test
 func TestHandleDebugEnv(t *testing.T) {
 	// Set a custom env var to verify it appears
 	key := "FLIGHT2_TEST_ENV"
@@ -68,6 +69,7 @@ func setupTestDB(t *testing.T, tableNames []string) *sql.DB {
 	return db
 }
 
+// Type: Unit Test
 func TestListTables_AutoSelectTb0(t *testing.T) {
 	tests := []struct {
 		name           string

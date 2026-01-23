@@ -10,6 +10,8 @@ import (
 	"flight2/internal/server"
 )
 
+// TestLocalOnlyRestriction verifies the local-only middleware logic.
+// Type: Unit Test
 func TestLocalOnlyRestriction(t *testing.T) {
 	// Setup mock services
 	dm, _ := dataset.NewManager(false, t.TempDir())

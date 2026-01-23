@@ -13,6 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Type: Regression Test
 func TestURLParsing(t *testing.T) {
 	// Locate the sample_data/test_links.db file relative to this test file
 	_, filename, _, _ := runtime.Caller(0)

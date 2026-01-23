@@ -94,6 +94,7 @@ func getTestConfig(t *testing.T) (*config.Config, func()) {
 // ... (code omitted for brevity, same as before)
 // URL: https://r2-auth@d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com/test-mksqlite/sample_data/21mb.csv
 // Credential Alias: r2-auth
+// Type: Integration Test
 func TestCloudflareR2EndToEnd(t *testing.T) {
 	// ... (content of TestCloudflareR2EndToEnd, copied from original view_file)
 	// 1. Setup Credentials
@@ -360,6 +361,8 @@ func createTestTemplates(dir string) {
 }
 
 // TestCloudflareR2Browser ... (same as before)
+// Type: E2E Test (Browser)
+// Type: E2E Test (Browser)
 func TestCloudflareR2Browser(t *testing.T) {
 	// ... (same content as TestCloudflareR2Browser)
 	creds := map[string]interface{}{

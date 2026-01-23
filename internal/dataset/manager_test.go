@@ -11,6 +11,7 @@ import (
 // a true unit test is hard without mocking the source.
 // However, we can test with a local file using rclone "local" backend.
 
+// Type: Integration Test
 func TestManager_GetSQLiteDB_LocalFile(t *testing.T) {
 	// Create a dummy CSV file
 	f, err := os.CreateTemp("", "test*.csv")

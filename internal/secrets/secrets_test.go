@@ -35,6 +35,7 @@ func getTestPaths(t *testing.T) (string, string) {
 	return "../../user_secrets.db", "../../.secret.key"
 }
 
+// Type: Use Case Test
 func TestAddCompellingCredentials(t *testing.T) {
 	// These values should match config.hcl if we want securebrowse to see them,
 	// BUT typically tests use separate files.
@@ -111,6 +112,7 @@ func TestAddCompellingCredentials(t *testing.T) {
 	}
 }
 
+// Type: Unit Test
 func TestSecrets(t *testing.T) {
 	dbPath, keyPath := getTestPaths(t)
 	// Only remove if we are using temp paths, otherwise we might delete real data!

@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// Type: Integration Test
 func TestManager_GetSQLiteDB_ExtensionResolution(t *testing.T) {
 	// Create a temp directory to simulate data folder
 	tempDir, err := os.MkdirTemp("", "flight2_data_test")

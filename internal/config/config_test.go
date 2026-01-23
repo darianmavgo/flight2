@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// Type: Unit Test
 func TestLoadConfig(t *testing.T) {
 	// Create a temp config file
 	content := `
@@ -41,6 +42,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+// Type: Unit Test
 func TestLoadConfigMissing(t *testing.T) {
 	cfg, err := LoadConfig("non_existent_file.hcl")
 	if err != nil {

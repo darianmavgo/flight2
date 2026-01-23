@@ -23,6 +23,14 @@ func CleanTestArtifacts(root string, dryRun bool) error {
 		}
 
 		name := info.Name()
+
+		if info.IsDir() {
+			// Skip protected directories
+			if name == "sample_data" || name == ".git" || name == ".idea" || name == ".vscode" {
+				return filepath.SkipDir
+			}
+		}
+
 		shouldDelete := false
 
 		// Criteria for deletion

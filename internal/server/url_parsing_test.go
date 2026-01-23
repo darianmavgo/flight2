@@ -18,7 +18,7 @@ func TestURLParsing(t *testing.T) {
 	// Locate the sample_data/test_links.db file relative to this test file
 	_, filename, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Join(filepath.Dir(filename), "../..")
-	dbPath := filepath.Join(projectRoot, "sample_data", "test_links.db")
+	dbPath := filepath.Join(projectRoot, "sample_data", "fixture_links.db")
 
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {

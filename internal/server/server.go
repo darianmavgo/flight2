@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"flight2/internal/data"
+	"flight2/internal/dataset"
 	"flight2/internal/secrets"
 	"flight2/internal/source"
 
@@ -33,7 +33,7 @@ import (
 
 // Server handles serving data.
 type Server struct {
-	dataManager   *data.Manager
+	dataManager   *dataset.Manager
 	secrets       *secrets.Service
 	tableWriter   *sqliter.TableWriter
 	templateDir   string
@@ -86,7 +86,7 @@ func (h *RequestHistory) GetRecent() []string {
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *data.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
+func NewServer(dm *dataset.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
 	if _, err := os.Stat(templateDir); err != nil {
 		log.Printf("TemplateDir %s does not exist: %v", templateDir, err)
 	}
@@ -257,7 +257,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Error parsing URL: %v", err), http.StatusBadRequest)
 		return
 	}
-	s.log("Parsed URL: source=%s, table=%s, user=%v", bq.DataSetPath, bq.Table, bq.User)
+	s.log("BSCH:%s BDSP:%s TB:%s User:%v", bq.Scheme, bq.DataSetPath, bq.Table, bq.User)
 
 	sourcePath := bq.DataSetPath
 
@@ -277,7 +277,7 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 
 		// Re-parse to extract user/alias from the corrected URL
 		if newBq, err := banquet.ParseBanquet(sourcePath); err == nil {
-			s.log("Re-parsed URL. User: %v", newBq.User)
+			s.log("BURL re-parsed. User: %v", newBq.User)
 			if newBq.User != nil {
 				bq = newBq
 			}
@@ -440,7 +440,11 @@ func (s *Server) handleBanquet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Error processing data: %v", err), http.StatusInternalServerError)
 		return
 	}
-	s.log("Database ready at: %s", dbPath)
+	dbPathLog := dbPath
+	if s.defaultDB != "" && sourcePath == s.defaultDB {
+		dbPathLog = "App.DB"
+	}
+	s.log("DB Ready: %s", dbPathLog)
 
 	// Add to history if successful DB get (implies access worked)
 	// We use the full original URL (or close to it)

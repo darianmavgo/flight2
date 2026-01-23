@@ -1,5 +1,5 @@
 port = "9090"
-secrets_db = "secrets.db"
+user_secrets_db = "secrets.db"
 secret_key = "key"
 verbose = true
 template_dir = "templates"

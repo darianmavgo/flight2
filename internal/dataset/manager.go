@@ -1,4 +1,4 @@
-package data
+package dataset
 
 import (
 	"context"
@@ -19,13 +19,7 @@ import (
 	"github.com/allegro/bigcache/v3"
 	"github.com/darianmavgo/mksqlite/converters"
 
-	_ "github.com/darianmavgo/mksqlite/converters/csv"
-	_ "github.com/darianmavgo/mksqlite/converters/excel"
-	_ "github.com/darianmavgo/mksqlite/converters/filesystem"
-	_ "github.com/darianmavgo/mksqlite/converters/html"
-	_ "github.com/darianmavgo/mksqlite/converters/json"
-	_ "github.com/darianmavgo/mksqlite/converters/txt"
-	_ "github.com/darianmavgo/mksqlite/converters/zip"
+	_ "github.com/darianmavgo/mksqlite/converters/all"
 )
 
 var supportedExtensions = []string{

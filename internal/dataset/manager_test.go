@@ -1,4 +1,4 @@
-package data
+package dataset
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestManager_GetSQLiteDB_LocalFile(t *testing.T) {
 	f.WriteString("id,name\n1,Alice\n2,Bob")
 	f.Close()
 
-	mgr, err := NewManager(true)
+	mgr, err := NewManager(true, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

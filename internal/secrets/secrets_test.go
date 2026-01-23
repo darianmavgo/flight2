@@ -1,9 +1,39 @@
 package secrets
 
 import (
-	"os"
+	"flag"
+	"flight2/internal/config"
+	"path/filepath"
 	"testing"
 )
+
+var useTempPaths = flag.Bool("use-temp-paths", false, "Use temporary paths for tests instead of config.hcl")
+
+func getTestPaths(t *testing.T) (string, string) {
+	if *useTempPaths {
+		tmpDB := filepath.Join(t.TempDir(), "test_secrets.db")
+		tmpKey := filepath.Join(t.TempDir(), "test.key")
+		return tmpDB, tmpKey
+	}
+
+	// Try to load config.hcl
+	cfg, err := config.LoadConfig("../../config.hcl")
+	if err == nil {
+		// Fix relative paths if needed
+		db := cfg.UserSecretsDB
+		if !filepath.IsAbs(db) {
+			db = filepath.Join("../..", db)
+		}
+		key := cfg.SecretKey
+		if !filepath.IsAbs(key) {
+			key = filepath.Join("../..", key)
+		}
+		return db, key
+	}
+
+	// Fallback if config load fails
+	return "../../user_secrets.db", "../../.secret.key"
+}
 
 func TestAddCompellingCredentials(t *testing.T) {
 	// These values should match config.hcl if we want securebrowse to see them,
@@ -11,8 +41,7 @@ func TestAddCompellingCredentials(t *testing.T) {
 	// The user said: "add some fake but compelling credentials to secrets.db ... and then confirm that securebrowse can display those"
 	// This implies we should hit the real secrets.db and .secret.key.
 
-	dbPath := "/Users/darianhickman/Documents/flight2/secrets.db"
-	keyPath := "/Users/darianhickman/Documents/flight2/.secret.key"
+	dbPath, keyPath := getTestPaths(t)
 
 	svc, err := NewService(dbPath, keyPath)
 	if err != nil {
@@ -69,8 +98,8 @@ func TestAddCompellingCredentials(t *testing.T) {
 	}
 
 	// First, let's clean up local-test and local-workspace if they exist
-	svc.DeleteCredentials("local-test")
-	svc.DeleteCredentials("local-workspace")
+	// Only clean up if we are modifying real DB? Or always?
+	// The test creates new entries.
 
 	for _, c := range compellingCreds {
 		_, err := svc.StoreCredentials(c.Alias, c.Data)
@@ -83,10 +112,8 @@ func TestAddCompellingCredentials(t *testing.T) {
 }
 
 func TestSecrets(t *testing.T) {
-	dbPath := "test_secrets.db"
-	keyPath := "test.key"
-	defer os.Remove(dbPath)
-	defer os.Remove(keyPath)
+	dbPath, keyPath := getTestPaths(t)
+	// Only remove if we are using temp paths, otherwise we might delete real data!
 
 	svc, err := NewService(dbPath, keyPath)
 	if err != nil {

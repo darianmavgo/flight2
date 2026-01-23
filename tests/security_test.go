@@ -5,14 +5,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"flight2/internal/data"
+	"flight2/internal/dataset"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
 )
 
 func TestLocalOnlyRestriction(t *testing.T) {
 	// Setup mock services
-	dm, _ := data.NewManager(false)
+	dm, _ := dataset.NewManager(false, t.TempDir())
 	// We don't need a real secrets service for this test as we only care about the middleware
 	ss, _ := secrets.NewService(":memory:", "test-key")
 	defer ss.Close()

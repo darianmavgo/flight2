@@ -9,7 +9,7 @@ import (
 	"strconv"
 
 	"flight2/internal/config"
-	"flight2/internal/data"
+	"flight2/internal/dataset"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
 
@@ -54,14 +54,14 @@ func main() {
 	}
 
 	// Initialize Secrets Manager
-	secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
+	secretsService, err := secrets.NewService(cfg.UserSecretsDB, cfg.SecretKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize secrets service: %v", err)
 	}
 	defer secretsService.Close()
 
 	// Initialize Data Manager (BigCache + MkSQLite)
-	dataManager, err := data.NewManager(cfg.Verbose, cfg.CacheDir)
+	dataManager, err := dataset.NewManager(cfg.Verbose, cfg.CacheDir)
 	if err != nil {
 		log.Fatalf("Failed to initialize data manager: %v", err)
 	}

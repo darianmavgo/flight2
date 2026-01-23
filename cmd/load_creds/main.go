@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Initialize Secrets Service
-	secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
+	secretsService, err := secrets.NewService(cfg.UserSecretsDB, cfg.SecretKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize secrets service: %v", err)
 	}

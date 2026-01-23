@@ -1,4 +1,4 @@
-package data
+package dataset
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestManager_GetSQLiteDB_ExtensionResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mgr, err := NewManager(true)
+	mgr, err := NewManager(true, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,24 +46,24 @@ func TestManager_GetSQLiteDB_ExtensionResolution(t *testing.T) {
 	}
 
 	// Verify that requesting with extension also works and might cache separately
-    // (logic says cache key includes sourcePath. If sourcePath was updated in GetSQLiteDB,
-    // the cache key uses the UPDATED path or the ORIGINAL one?
-    // Let's check logic:
-    // func (m *Manager) GetSQLiteDB(..., sourcePath, ...) {
-    //    if ... { sourcePath = p }
-    //    key := ... sourcePath
-    // }
-    // So the cache key uses the RESOLVED path.
-    // So if I request `testfile`, it resolves to `testfile.csv`. Key is `...:testfile.csv`.
-    // If I request `testfile.csv`, key is `...:testfile.csv`.
-    // So they should share cache! This is great.
+	// (logic says cache key includes sourcePath. If sourcePath was updated in GetSQLiteDB,
+	// the cache key uses the UPDATED path or the ORIGINAL one?
+	// Let's check logic:
+	// func (m *Manager) GetSQLiteDB(..., sourcePath, ...) {
+	//    if ... { sourcePath = p }
+	//    key := ... sourcePath
+	// }
+	// So the cache key uses the RESOLVED path.
+	// So if I request `testfile`, it resolves to `testfile.csv`. Key is `...:testfile.csv`.
+	// If I request `testfile.csv`, key is `...:testfile.csv`.
+	// So they should share cache! This is great.
 
 	dbPath2, err := mgr.GetSQLiteDB(context.Background(), csvPath, creds, "test-alias")
 	if err != nil {
 		t.Fatalf("Failed to get DB with explicit extension: %v", err)
 	}
-    defer os.Remove(dbPath2)
+	defer os.Remove(dbPath2)
 
-    // We can't easily verify cache hit via public API without logs or timing,
-    // but the functionality is what matters here.
+	// We can't easily verify cache hit via public API without logs or timing,
+	// but the functionality is what matters here.
 }

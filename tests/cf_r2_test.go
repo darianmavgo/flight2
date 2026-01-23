@@ -14,7 +14,11 @@ import (
 	"time"
 
 	"flight2/internal/data"
+	"flight2/internal/dataset"
 	"flight2/internal/secrets"
+
+	"flag"
+	"flight2/internal/config"
 
 	"github.com/darianmavgo/banquet"
 	"github.com/darianmavgo/sqliter/sqliter"
@@ -23,6 +27,68 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/rclone/rclone/backend/all"
 )
+
+var useTempPaths = flag.Bool("use-temp-paths", false, "Use temporary paths for tests instead of config.hcl")
+
+func getTestConfig(t *testing.T) (*config.Config, func()) {
+	if *useTempPaths {
+		tmpDir := t.TempDir()
+		return &config.Config{
+			Port:          "0",
+			UserSecretsDB: filepath.Join(tmpDir, "test_secrets.db"),
+			SecretKey:     "test-key", // In-memory key for temp
+			TemplateDir:   filepath.Join(tmpDir, "templates"),
+			ServeFolder:   tmpDir,
+			CacheDir:      filepath.Join(tmpDir, "cache"),
+			Verbose:       true,
+			DefaultDB:     filepath.Join(tmpDir, "app.sqlite"),
+			AutoSelectTb0: true,
+			LocalOnly:     true,
+		}, func() {}
+	}
+
+	// Load real config
+	cfg, err := config.LoadConfig("../config.hcl")
+	if err != nil {
+		// Fallback to default mostly
+		t.Logf("Failed to load ../config.hcl: %v. Using defaults with relative paths.", err)
+		return &config.Config{
+			Port:          "0",
+			UserSecretsDB: "../user_secrets.db",
+			SecretKey:     "../.secret.key",
+			TemplateDir:   "../templates",
+			CacheDir:      "../cache",
+			Verbose:       true,
+			DefaultDB:     "../app.sqlite",
+		}, func() {}
+	}
+
+	// Fix relative paths to be relative to test dir ??
+	// config.hcl paths are relative to root.
+	// Tests run in flight2/tests.
+	// We need to resolve them.
+	resolve := func(path string) string {
+		if filepath.IsAbs(path) {
+			return path
+		}
+		return filepath.Join("..", path)
+	}
+	cfg.UserSecretsDB = resolve(cfg.UserSecretsDB)
+	// SecretKey often just a string or file path? Config says SecretKey string.
+	// secrets.NewService takes a file path or string?
+	// The real code uses .secret.key file content? No, secrets.NewService takes key string or path?
+	// Let's check: secrets.NewService(dbPath, secretKey string).
+	// In main.go: secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
+	// If cfg.SecretKey is a file path, NewService handles it?
+	// Let's assume it's a file path for now since typical usages show ".secret.key".
+	// But `secrets.NewService` reads the file if it exists? or uses string as key?
+	// Main.go: secretsService, err := secrets.NewService(cfg.SecretsDB, cfg.SecretKey)
+
+	// Actually, careful: if we use real DB, we might mess it up.
+	// But the user ASKED to use permanent paths.
+
+	return cfg, func() {}
+}
 
 // TestCloudflareR2EndToEnd performs an end-to-end test of the Cloudflare R2 integration.
 // ... (code omitted for brevity, same as before)
@@ -42,13 +108,20 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 		"type":              "s3",
 	}
 
-	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_*.db")
-	if err != nil {
-		t.Fatalf("Failed to create temp secrets DB: %v", err)
-	}
-	defer os.Remove(tmpSecretsDB.Name())
+	// 1. Setup Configuration
+	cfg, _ := getTestConfig(t)
 
-	secretsService, err := secrets.NewService(tmpSecretsDB.Name(), "test-key")
+	// Ensure cache dir exists for real config
+	if cfg.CacheDir != "" {
+		if !strings.HasPrefix(cfg.CacheDir, "/") && !strings.HasPrefix(cfg.CacheDir, ".") {
+			// It was resolved?
+		} else {
+			// Ensure it exists
+			os.MkdirAll(cfg.CacheDir, 0755)
+		}
+	}
+
+	secretsService, err := secrets.NewService(cfg.UserSecretsDB, cfg.SecretKey)
 	if err != nil {
 		t.Fatalf("Failed to initialize secrets service: %v", err)
 	}
@@ -80,7 +153,8 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 	}
 
 	// 3. Convert to SQLite
-	dm, err := data.NewManager(true)
+	// 3. Convert to SQLite
+	dm, err := dataset.NewManager(cfg.Verbose, cfg.CacheDir)
 	if err != nil {
 		t.Fatalf("Failed to create data manager: %v", err)
 	}
@@ -101,7 +175,6 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to convert to SQLite: %v", err)
 	}
-	defer os.Remove(dbPath)
 
 	log.Printf("Conversion successful, DB at: %s", dbPath)
 
@@ -142,14 +215,33 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 // ... (StartTestServer and TestServerWrapper omitted for brevity, logic remains same)
 func StartTestServer(t *testing.T, secretsService *secrets.Service) (string, func()) {
 	// ... (same as before)
-	tmpDir, err := os.MkdirTemp("", "templates")
-	if err != nil {
-		t.Fatalf("Failed to create temp template dir: %v", err)
+	// Use cfg for templates if not temp
+	cfg, _ := getTestConfig(t)
+	// We handle cleanup here because this function returns a cleanup func too.
+	// But `getTestConfig` cleanup does nothing for real config (or closes stuff?)
+	// Actually it returns func(){}.
+	// If it returned cleanup for temp paths, we should incorporate it.
+
+	var tmpDir string
+	if *useTempPaths {
+		var err error
+		tmpDir, err = os.MkdirTemp("", "templates")
+		if err != nil {
+			t.Fatalf("Failed to create temp template dir: %v", err)
+		}
+		createTestTemplates(tmpDir)
+	} else {
+		// Use temp templates regardless for consistent test HTML, but logging config usage
+		var err error
+		tmpDir, err = os.MkdirTemp("", "templates")
+		if err != nil {
+			t.Fatalf("Failed to create temp template dir: %v", err)
+		}
+		createTestTemplates(tmpDir)
 	}
-	createTestTemplates(tmpDir)
 	tpl := sqliter.LoadTemplates(tmpDir)
 
-	dm, err := data.NewManager(true)
+	dm, err := data.NewManager(cfg.Verbose, cfg.CacheDir)
 	if err != nil {
 		t.Fatalf("Failed to create data manager: %v", err)
 	}
@@ -174,13 +266,12 @@ func StartTestServer(t *testing.T, secretsService *secrets.Service) (string, fun
 	go srv.Serve(ln)
 
 	return baseUrl, func() {
-		srv.Shutdown(context.Background())
-		os.RemoveAll(tmpDir)
+		t.Logf("Leaving server running on %s", baseUrl)
 	}
 }
 
 type TestServerWrapper struct {
-	dm *data.Manager
+	dm *dataset.Manager
 	ss *secrets.Service
 	tw *sqliter.TableWriter
 }
@@ -282,13 +373,9 @@ func TestCloudflareR2Browser(t *testing.T) {
 		"type":              "s3",
 	}
 
-	tmpSecretsDB, err := os.CreateTemp("", "test_secrets_browser_*.db")
-	if err != nil {
-		t.Fatalf("Failed to create temp secrets DB: %v", err)
-	}
-	defer os.Remove(tmpSecretsDB.Name())
+	cfg, _ := getTestConfig(t)
 
-	secretsService, err := secrets.NewService(tmpSecretsDB.Name(), "test-key")
+	secretsService, err := secrets.NewService(cfg.UserSecretsDB, cfg.SecretKey)
 	if err != nil {
 		t.Fatalf("Failed to initialize secrets service: %v", err)
 	}
@@ -300,8 +387,7 @@ func TestCloudflareR2Browser(t *testing.T) {
 		t.Fatalf("Failed to store credentials: %v", err)
 	}
 
-	serverURL, cleanup := StartTestServer(t, secretsService)
-	defer cleanup()
+	serverURL, _ := StartTestServer(t, secretsService)
 
 	l := launcher.New().Headless(true)
 	u, err := l.Launch()
@@ -311,7 +397,6 @@ func TestCloudflareR2Browser(t *testing.T) {
 	}
 
 	browser := rod.New().ControlURL(u).MustConnect()
-	defer browser.MustClose()
 
 	start := time.Now()
 

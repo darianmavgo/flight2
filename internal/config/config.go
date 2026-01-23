@@ -13,7 +13,7 @@ type Config struct {
 	Port          string `json:"port" hcl:"port,optional"`
 	ServeFolder   string `json:"serve_folder" hcl:"serve_folder,optional"`
 	TemplateDir   string `json:"template_dir" hcl:"template_dir,optional"`
-	SecretsDB     string `json:"secrets_db" hcl:"secrets_db,optional"`
+	UserSecretsDB string `json:"user_secrets_db" hcl:"user_secrets_db,optional"`
 	SecretKey     string `json:"secret_key" hcl:"secret_key,optional"`
 	Verbose       bool   `json:"verbose" hcl:"verbose,optional"`
 	AutoSelectTb0 bool   `json:"auto_select_tb0" hcl:"auto_select_tb0,optional"`
@@ -26,7 +26,7 @@ func LoadConfig(filename string) (*Config, error) {
 	config := Config{
 		Port:          "8080",
 		TemplateDir:   "templates",
-		SecretsDB:     "secrets.db",
+		UserSecretsDB: "user_secrets.db",
 		SecretKey:     ".secret.key",
 		AutoSelectTb0: true,
 		LocalOnly:     true,
@@ -64,8 +64,8 @@ func LoadConfig(filename string) (*Config, error) {
 	if config.TemplateDir == "" {
 		config.TemplateDir = "templates"
 	}
-	if config.SecretsDB == "" {
-		config.SecretsDB = "secrets.db"
+	if config.UserSecretsDB == "" {
+		config.UserSecretsDB = "user_secrets.db"
 	}
 	if config.SecretKey == "" {
 		config.SecretKey = ".secret.key"

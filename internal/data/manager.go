@@ -2,6 +2,8 @@ package data
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -32,11 +34,17 @@ var supportedExtensions = []string{
 }
 
 type Manager struct {
-	cache   *bigcache.BigCache
-	verbose bool
+	cache    *bigcache.BigCache
+	verbose  bool
+	cacheDir string
 }
 
-func NewManager(verbose bool) (*Manager, error) {
+func NewManager(verbose bool, cacheDir string) (*Manager, error) {
+	// Ensure cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache dir: %w", err)
+	}
+
 	// Configure cache to hold gigabytes.
 	// Max size in MB. 2GB = 2048.
 	config := bigcache.DefaultConfig(10 * time.Minute)
@@ -48,7 +56,7 @@ func NewManager(verbose bool) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{cache: cache, verbose: verbose}, nil
+	return &Manager{cache: cache, verbose: verbose, cacheDir: cacheDir}, nil
 }
 
 // GetSQLiteDB returns a path to a SQLite database for the given source.
@@ -67,20 +75,40 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 	}
 
 	// Include alias in cache key to prevent cross-user leaks
+	if m.verbose {
+		log.Printf("🔹 [CACHE KEY] Generaring key from: Alias=[%s] SourcePath=[%s]", alias, sourcePath)
+	}
 	key := fmt.Sprintf("%s:%s", alias, sourcePath)
 
-	// Check cache
+	// 1. Check Memory Cache (BigCache)
 	entry, err := m.cache.Get(key)
 	if err == nil {
 		if m.verbose {
-			log.Printf("Cache hit for %s", sourcePath)
+			fmt.Println("🟢 [CACHE HIT] (Memory) Serving from RAM")
 		}
 		return writeTempFile(entry)
 	}
 
-	// Cache miss
+	// 2. Check Disk Cache
+	hash := md5.Sum([]byte(key))
+	hashStr := hex.EncodeToString(hash[:])
+	diskPath := filepath.Join(m.cacheDir, hashStr+".sqlite")
+
+	if info, err := os.Stat(diskPath); err == nil && !info.IsDir() {
+		data, err := os.ReadFile(diskPath)
+		if err == nil {
+			if m.verbose {
+				fmt.Println("🟢 [CACHE HIT] (Disk) Loaded from " + diskPath)
+			}
+			// Update memory cache
+			m.cache.Set(key, data)
+			return writeTempFile(data)
+		}
+	}
+
+	// 3. Cache Miss - Fetch and Convert
 	if m.verbose {
-		log.Printf("Cache miss for %s, fetching and converting...", sourcePath)
+		fmt.Println("🟠 [CACHE MISS] Fetching and converting...")
 	}
 
 	// Prepare output file
@@ -219,9 +247,19 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 		return "", fmt.Errorf("failed to read converted db: %w", err)
 	}
 
+	// Update Caches
+	// 1. Memory
 	err = m.cache.Set(key, data)
 	if err != nil {
 		fmt.Printf("Warning: failed to set cache: %v\n", err)
+	}
+	// 2. Disk
+	if err := os.WriteFile(diskPath, data, 0644); err != nil {
+		fmt.Printf("Warning: failed to write disk cache: %v\n", err)
+	} else {
+		if m.verbose {
+			fmt.Printf("💾 [CACHE SAVED] Written to disk: %s\n", diskPath)
+		}
 	}
 
 	return tmpOutName, nil

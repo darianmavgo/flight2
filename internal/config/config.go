@@ -19,6 +19,7 @@ type Config struct {
 	AutoSelectTb0 bool   `json:"auto_select_tb0" hcl:"auto_select_tb0,optional"`
 	LocalOnly     bool   `json:"local_only" hcl:"local_only,optional"`
 	DefaultDB     string `json:"default_db" hcl:"default_db,optional"`
+	CacheDir      string `json:"cache_dir" hcl:"cache_dir,optional"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
@@ -30,6 +31,7 @@ func LoadConfig(filename string) (*Config, error) {
 		AutoSelectTb0: true,
 		LocalOnly:     true,
 		DefaultDB:     "app.sqlite",
+		CacheDir:      "cache",
 	}
 
 	if _, err := os.Stat(filename); os.IsNotExist(err) {

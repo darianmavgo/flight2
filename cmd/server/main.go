@@ -61,7 +61,7 @@ func main() {
 	defer secretsService.Close()
 
 	// Initialize Data Manager (BigCache + MkSQLite)
-	dataManager, err := data.NewManager(cfg.Verbose)
+	dataManager, err := data.NewManager(cfg.Verbose, cfg.CacheDir)
 	if err != nil {
 		log.Fatalf("Failed to initialize data manager: %v", err)
 	}

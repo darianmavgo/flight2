@@ -5,3 +5,4 @@ verbose = true
 template_dir = "templates"
 auto_select_tb0 = true
 default_db = "app.sqlite"
+cache_dir = "cache"

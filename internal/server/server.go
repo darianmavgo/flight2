@@ -138,45 +138,10 @@ func (s *Server) handleAppIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintln(w, `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Flight2 Management</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; line-height: 1.6; }
-        .container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155; }
-        h1 { margin-top: 0; color: #818cf8; }
-        ul { list-style: none; padding: 0; }
-        li { margin-bottom: 1rem; }
-        a { color: #6366f1; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
-        a:hover { color: #818cf8; text-decoration: underline; }
-        .desc { color: #94a3b8; font-size: 0.9rem; margin-top: 0.25rem; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚀 Flight2 Management</h1>
-        <ul>
-            <li>
-                <a href="/app/credentials/manage">📡 Remote Management</a>
-                <div class="desc">Configure cloud storage providers (S3, Drive, Dropbox, SFTP).</div>
-            </li>
-            <li>
-                <a href="/app/test/banquet/">🍽️ Banquet Test DB</a>
-                <div class="desc">View columns and rows within the default test database.</div>
-            </li>
-            <li>
-                <a href="/app/debug/env">🔍 Debug Environment</a>
-                <div class="desc">View server environment variables (Local use only).</div>
-            </li>
-        </ul>
-        <hr style="border: 0; border-top: 1px solid #334155; margin: 2rem 0;">
-        <p style="color: #94a3b8; font-size: 0.8rem; text-align: center;">Flight2 Server • Active and Optimal</p>
-    </div>
-</body>
-</html>`)
+	//Make this view a sqlite db via sqliter
+	// user_secrets.db
+	// app.sqlite?
+	// test
 }
 
 func (s *Server) localOnlyMiddleware(next http.Handler) http.Handler {

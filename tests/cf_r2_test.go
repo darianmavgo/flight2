@@ -36,11 +36,25 @@ func getTestConfig(t *testing.T) (*config.Config, func()) {
 		if err := os.MkdirAll(tmpDir, 0755); err != nil {
 			t.Fatalf("Failed to create temp dir in test_output: %v", err)
 		}
+
+		// Copy real credentials to temp dir for reading
+		testOutputDir, _ := filepath.Abs("../test_output")
+		realSecretsDB := filepath.Join("..", "user_secrets.db")
+		realSecretKey := filepath.Join("..", ".secret.key")
+		testSecretsDB := filepath.Join(testOutputDir, "user_settings.db")
+		testSecretKey := filepath.Join(testOutputDir, "secret.key")
+
+		if data, err := os.ReadFile(realSecretsDB); err == nil {
+			os.WriteFile(testSecretsDB, data, 0644)
+		}
+		if data, err := os.ReadFile(realSecretKey); err == nil {
+			os.WriteFile(testSecretKey, data, 0644)
+		}
+
 		return &config.Config{
 				Port:          "0",
-				UserSecretsDB: filepath.Join(tmpDir, "test_secrets.db"),
-				SecretKey:     "test-key", // In-memory key for temp
-				TemplateDir:   filepath.Join(tmpDir, "templates"),
+				UserSecretsDB: testSecretsDB,
+				SecretKey:     testSecretKey,
 				ServeFolder:   tmpDir,
 				CacheDir:      filepath.Join(tmpDir, "cache"),
 				Verbose:       true,
@@ -61,7 +75,6 @@ func getTestConfig(t *testing.T) (*config.Config, func()) {
 			Port:          "0",
 			UserSecretsDB: "user_secrets.db",
 			SecretKey:     ".secret.key",
-			TemplateDir:   "templates",
 			CacheDir:      "cache",
 			Verbose:       true,
 			DefaultDB:     "app.sqlite",
@@ -77,15 +90,26 @@ func getTestConfig(t *testing.T) (*config.Config, func()) {
 	// Force rclone to use test_output
 	os.Setenv("RCLONE_CACHE_DIR", filepath.Join(testOutputDir, "test_rclone_cache"))
 
-	cfg.UserSecretsDB = filepath.Join(testOutputDir, "user_secrets.db")
-	cfg.SecretKey = filepath.Join(testOutputDir, "secret.key")
+	// Copy real credentials to test_output for reading, then write to user_settings.db
+	realSecretsDB := filepath.Join("..", "user_secrets.db")
+	realSecretKey := filepath.Join("..", ".secret.key")
+	testSecretsDB := filepath.Join(testOutputDir, "user_settings.db")
+	testSecretKey := filepath.Join(testOutputDir, "secret.key")
+
+	if data, err := os.ReadFile(realSecretsDB); err == nil {
+		os.WriteFile(testSecretsDB, data, 0644)
+	} else {
+		t.Logf("Warning: Real user_secrets.db not found at %s: %v", realSecretsDB, err)
+	}
+
+	if data, err := os.ReadFile(realSecretKey); err == nil {
+		os.WriteFile(testSecretKey, data, 0644)
+	}
+
+	cfg.UserSecretsDB = testSecretsDB
+	cfg.SecretKey = testSecretKey
 	cfg.CacheDir = filepath.Join(testOutputDir, "cache")
 	cfg.DefaultDB = filepath.Join(testOutputDir, "app.sqlite")
-
-	// Resolve TemplateDir relative to tests dir if it's relative
-	if !filepath.IsAbs(cfg.TemplateDir) {
-		cfg.TemplateDir = filepath.Join("..", cfg.TemplateDir)
-	}
 
 	return cfg, func() {}
 }
@@ -108,11 +132,19 @@ func TestCloudflareR2EndToEnd(t *testing.T) {
 	// Use the hardcoded credentials from the prompt for the "r2-auth" alias.
 
 	// 1. Setup Credentials
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+	endpoint := os.Getenv("R2_ENDPOINT")
+
+	if accessKey == "" || secretKey == "" || endpoint == "" {
+		t.Skip("R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, or R2_ENDPOINT not set. Skipping R2 end-to-end test.")
+	}
+
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
-		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
-		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
-		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"access_key_id":     accessKey,
+		"secret_access_key": secretKey,
+		"endpoint":          endpoint,
 		"region":            "auto",
 		"chunk_size":        "5Mi",
 		"copy_cutoff":       "5Mi",
@@ -364,11 +396,19 @@ func createTestTemplates(dir string) {
 // Type: E2E Test (Browser)
 func TestCloudflareR2Browser(t *testing.T) {
 	// 1. Setup Credentials
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+	endpoint := os.Getenv("R2_ENDPOINT")
+
+	if accessKey == "" || secretKey == "" || endpoint == "" {
+		t.Skip("R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, or R2_ENDPOINT not set. Skipping R2 browser test.")
+	}
+
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
-		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
-		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
-		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"access_key_id":     accessKey,
+		"secret_access_key": secretKey,
+		"endpoint":          endpoint,
 		"region":            "auto",
 		"chunk_size":        "5Mi",
 		"copy_cutoff":       "5Mi",

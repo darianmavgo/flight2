@@ -4,6 +4,7 @@ import (
 	"flight2/internal/config"
 	"flight2/internal/secrets"
 	"log"
+	"os"
 )
 
 func main() {
@@ -20,12 +21,20 @@ func main() {
 	}
 	defer secretsService.Close()
 
-	// Credentials from tests/cf_r2_test.go
+	// Credentials from environment variables
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+	endpoint := os.Getenv("R2_ENDPOINT")
+
+	if accessKey == "" || secretKey == "" || endpoint == "" {
+		log.Fatal("R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, or R2_ENDPOINT not set")
+	}
+
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
-		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
-		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
-		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"access_key_id":     accessKey,
+		"secret_access_key": secretKey,
+		"endpoint":          endpoint,
 		"region":            "auto",
 		"chunk_size":        "5Mi",
 		"copy_cutoff":       "5Mi",

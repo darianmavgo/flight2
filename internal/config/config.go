@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,22 +9,20 @@ import (
 )
 
 type Config struct {
-	Port          string `json:"port" hcl:"port,optional"`
-	ServeFolder   string `json:"serve_folder" hcl:"serve_folder,optional"`
-	TemplateDir   string `json:"template_dir" hcl:"template_dir,optional"`
-	UserSecretsDB string `json:"user_secrets_db" hcl:"user_secrets_db,optional"`
-	SecretKey     string `json:"secret_key" hcl:"secret_key,optional"`
-	Verbose       bool   `json:"verbose" hcl:"verbose,optional"`
-	AutoSelectTb0 bool   `json:"auto_select_tb0" hcl:"auto_select_tb0,optional"`
-	LocalOnly     bool   `json:"local_only" hcl:"local_only,optional"`
-	DefaultDB     string `json:"default_db" hcl:"default_db,optional"`
-	CacheDir      string `json:"cache_dir" hcl:"cache_dir,optional"`
+	Port          string `hcl:"port,optional"`
+	ServeFolder   string `hcl:"serve_folder,optional"`
+	UserSecretsDB string `hcl:"user_secrets_db,optional"`
+	SecretKey     string `hcl:"secret_key,optional"`
+	Verbose       bool   `hcl:"verbose,optional"`
+	AutoSelectTb0 bool   `hcl:"auto_select_tb0,optional"`
+	LocalOnly     bool   `hcl:"local_only,optional"`
+	DefaultDB     string `hcl:"default_db,optional"`
+	CacheDir      string `hcl:"cache_dir,optional"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
 	config := Config{
 		Port:          "8080",
-		TemplateDir:   "templates",
 		UserSecretsDB: "user_secrets.db",
 		SecretKey:     ".secret.key",
 		AutoSelectTb0: true,
@@ -39,30 +36,18 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	ext := filepath.Ext(filename)
-	if ext == ".hcl" {
-		err := hclsimple.DecodeFile(filename, nil, &config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load hcl config file: %w", err)
-		}
-	} else {
-		f, err := os.Open(filename)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
+	if ext != ".hcl" {
+		return nil, fmt.Errorf("config file must have .hcl extension: %s", filename)
+	}
 
-		err = json.NewDecoder(f).Decode(&config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load json config file: %w", err)
-		}
+	err := hclsimple.DecodeFile(filename, nil, &config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load hcl config file: %w", err)
 	}
 
 	// Double check defaults if empty
 	if config.Port == "" {
 		config.Port = "8080"
-	}
-	if config.TemplateDir == "" {
-		config.TemplateDir = "templates"
 	}
 	if config.UserSecretsDB == "" {
 		config.UserSecretsDB = "user_secrets.db"

@@ -14,7 +14,7 @@ The `vfs` package (`github.com/rclone/rclone/vfs`) wraps an `fs.Fs` and provides
 *   **VFS Caching**: It supports VFS file caching (`--vfs-cache-mode`), enabling seeking in files that don't natively support it and safe writes.
 
 ### Implementation Strategy
-In `flight2/internal/source/source.go`:
+In `flight2/internal/dataset_source/source.go`:
 1.  Instead of returning `fs.Fs`, wrap it with `vfs.New(fsrc, vfsOpt)`.
 2.  Store the `*vfs.VFS` instance.
 3.  Use `vfs.Stat(path)` and `vfs.Open(path)` instead of `fsrc.NewObject`.

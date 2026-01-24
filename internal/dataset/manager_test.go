@@ -8,7 +8,7 @@ import (
 )
 
 // Mocking source fetch or just testing logic?
-// Since `internal/dataset` depends on `internal/source` which depends on `rclone`,
+// Since `internal/dataset` depends on `internal/dataset_source` which depends on `rclone`,
 // a true unit test is hard without mocking the source.
 // However, we can test with a local file using rclone "local" backend.
 

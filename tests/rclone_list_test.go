@@ -2,9 +2,9 @@ package tests
 
 import (
 	"context"
+	"flight2/internal/dataset_source"
 	"flight2/internal/secrets"
 	"flight2/internal/server"
-	"flight2/internal/source"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// TestRcloneListing verifies that source.ListEntries works correctly
+// TestRcloneListing verifies that dataset_source.ListEntries works correctly
 // using the Cloudflare R2 bucket.
 // It lists the contents of the 'test-mksqlite/sample_data/' directory.
 func TestRcloneListing(t *testing.T) {
@@ -28,11 +28,19 @@ func TestRcloneListing(t *testing.T) {
 	defer secretsService.Close()
 
 	// 2. Setup Credentials
+	accessKey := os.Getenv("R2_ACCESS_KEY_ID")
+	secretKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+	endpoint := os.Getenv("R2_ENDPOINT")
+
+	if accessKey == "" || secretKey == "" || endpoint == "" {
+		t.Skip("R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, or R2_ENDPOINT not set. Skipping R2 listing test.")
+	}
+
 	creds := map[string]interface{}{
 		"provider":          "Cloudflare",
-		"access_key_id":     "0d5aacd854377d79f3c83caa688effbe",
-		"secret_access_key": "986a762b395b7b9ebc6c08a62a64cbd8a872654ce7c927270e46cab19c9b0af5",
-		"endpoint":          "https://d8dc30936fb37cbd74552d31a709f6cf.r2.cloudflarestorage.com",
+		"access_key_id":     accessKey,
+		"secret_access_key": secretKey,
+		"endpoint":          endpoint,
 		"region":            "auto",
 		"chunk_size":        "5Mi",
 		"copy_cutoff":       "5Mi",
@@ -40,16 +48,16 @@ func TestRcloneListing(t *testing.T) {
 	}
 
 	// 3. Init Rclone VFS in correct cache dir
-	source.Init(cfg.CacheDir)
+	dataset_source.Init(cfg.CacheDir)
 
 	// 4. Test Listing
 	// The bucket path we want to list is 'test-mksqlite/sample_data'
 	// Note: For S3, the "bucket" is usually part of the root.
-	// In source.go logic for cloud providers, we use "" as fsRoot, and path is absolute from there.
+	// In dataset_source.go logic for cloud providers, we use "" as fsRoot, and path is absolute from there.
 	targetPath := "test-mksqlite/sample_data"
 
 	t.Logf("Listing entries in: %s", targetPath)
-	entries, err := source.ListEntries(context.Background(), targetPath, creds)
+	entries, err := dataset_source.ListEntries(context.Background(), targetPath, creds)
 	if err != nil {
 		t.Fatalf("Failed to list entries: %v", err)
 	}
@@ -99,7 +107,7 @@ func TestAppEndpoint(t *testing.T) {
 
 	// 3. Initialize Server
 	// We pass nil for DataManager as /app index doesn't use it.
-	srv := server.NewServer(nil, ss, tmpDir, cfg.ServeFolder, true, true, false, cfg.DefaultDB)
+	srv := server.NewServer(nil, ss, cfg.ServeFolder, true, true, false, cfg.DefaultDB)
 
 	// 4. Test /app request
 	req, err := http.NewRequest("GET", "/app/", nil)

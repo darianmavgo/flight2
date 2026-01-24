@@ -36,9 +36,6 @@ func main() {
 	if cfg.UserSecretsDB != "" {
 		protected[resolve(cfg.UserSecretsDB)] = "UserSecretsDB"
 	}
-	if cfg.TemplateDir != "" {
-		protected[resolve(cfg.TemplateDir)] = "TemplateDir"
-	}
 	if cfg.ServeFolder != "" {
 		protected[resolve(cfg.ServeFolder)] = "ServeFolder"
 	}

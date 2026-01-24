@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"flight2/internal/dataset"
+	"flight2/internal/dataset_source"
 	"flight2/internal/secrets"
-	"flight2/internal/source"
 
 	"github.com/darianmavgo/banquet"
 	"github.com/darianmavgo/sqliter/pkg/common"
@@ -35,7 +35,6 @@ type Server struct {
 	dataManager   *dataset.Manager
 	secrets       *secrets.Service
 	tableWriter   *sqliter.TableWriter
-	templateDir   string
 	serveFolder   string
 	verbose       bool
 	autoSelectTb0 bool
@@ -85,18 +84,14 @@ func (h *RequestHistory) GetRecent() []string {
 }
 
 // NewServer creates a new Server.
-func NewServer(dm *dataset.Manager, ss *secrets.Service, templateDir string, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
-	if _, err := os.Stat(templateDir); err != nil {
-		log.Printf("TemplateDir %s does not exist: %v", templateDir, err)
-	}
-	t := sqliter.LoadTemplates(templateDir)
+func NewServer(dm *dataset.Manager, ss *secrets.Service, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
+	t := sqliter.GetDefaultTemplates()
 	sqliterCfg := sqliter.DefaultConfig()
 	sqliterCfg.Verbose = verbose
 	srv := &Server{
 		dataManager:   dm,
 		secrets:       ss,
 		tableWriter:   sqliter.NewTableWriter(t, sqliterCfg),
-		templateDir:   templateDir,
 		serveFolder:   serveFolder,
 		verbose:       verbose,
 		autoSelectTb0: autoSelectTb0,
@@ -127,7 +122,6 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /app/credentials/delete", s.handleDeleteCredential)
 	mux.HandleFunc("GET /app/browse/{alias}/{path...}", s.handleBrowse)
 	mux.HandleFunc("GET /app/view/{alias}/{path...}", s.handleView)
-	mux.HandleFunc("GET /app/test/banquet/", s.handleBanquetTestDB)
 	mux.HandleFunc("GET /app/test/banquet/{path...}", s.handleBanquetTestDB)
 	mux.HandleFunc("/app/credentials", s.handleCredentials)
 	mux.HandleFunc("/app/", s.handleAppIndex)
@@ -813,7 +807,7 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		s.log("🔍 [AUTH TEST] Verifying remote '%s'...", alias)
-		_, err := source.ListEntries(ctx, "", creds)
+		_, err := dataset_source.ListEntries(ctx, "", creds)
 		if err != nil {
 			s.log("❌ [AUTH TEST] Remote '%s' FAILED: %v", alias, err)
 		} else {
@@ -851,7 +845,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias string, relPath string, creds map[string]interface{}) {
-	entries, err := source.ListEntries(r.Context(), relPath, creds)
+	entries, err := dataset_source.ListEntries(r.Context(), relPath, creds)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list entries: %v", err), http.StatusInternalServerError)
 		return
@@ -931,7 +925,7 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, err := source.GetFileStream(r.Context(), relPath, creds)
+	rc, err := dataset_source.GetFileStream(r.Context(), relPath, creds)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to open file: %v", err), http.StatusInternalServerError)
 		return

@@ -40,8 +40,8 @@ serve_folder = "/tmp/data"
 		t.Errorf("Expected ServeFolder /tmp/data, got %s", cfg.ServeFolder)
 	}
 	// Check defaults
-	if cfg.TemplateDir != "templates" {
-		t.Errorf("Expected default TemplateDir templates, got %s", cfg.TemplateDir)
+	if cfg.UserSecretsDB != "user_secrets.db" {
+		t.Errorf("Expected default UserSecretsDB user_secrets.db, got %s", cfg.UserSecretsDB)
 	}
 }
 

@@ -2,7 +2,6 @@ package secrets
 
 import (
 	"flag"
-	"flight2/internal/config"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,43 +10,31 @@ import (
 var useTempPaths = flag.Bool("use-temp-paths", false, "Use temporary paths for tests instead of config.hcl")
 
 func getTestPaths(t *testing.T) (string, string) {
+	testOutputDir := "../../test_output"
+	if err := os.MkdirAll(testOutputDir, 0755); err != nil {
+		t.Fatalf("Failed to create test_output dir: %v", err)
+	}
+
+	realSecretsDB := "../../user_secrets.db"
+	realSecretKey := "../../.secret.key"
+	testSecretsDB := filepath.Join(testOutputDir, "user_settings.db")
+	testSecretKey := filepath.Join(testOutputDir, "secret.key")
+
+	// Copy real credentials to test_output for reading
+	if data, err := os.ReadFile(realSecretsDB); err == nil {
+		os.WriteFile(testSecretsDB, data, 0644)
+	}
+	if data, err := os.ReadFile(realSecretKey); err == nil {
+		os.WriteFile(testSecretKey, data, 0644)
+	}
+
 	if *useTempPaths {
-		testOutputDir := "../../test_output"
-		if err := os.MkdirAll(testOutputDir, 0755); err != nil {
-			t.Fatalf("Failed to create test_output dir: %v", err)
-		}
-		// Create unique temp file inside test_output
-		tmpDBFile, _ := os.CreateTemp(testOutputDir, "test_secrets_*.db")
-		tmpKeyFile, _ := os.CreateTemp(testOutputDir, "test_key_*.key")
-		tmpDB := tmpDBFile.Name()
-		tmpKey := tmpKeyFile.Name()
-		tmpDBFile.Close()
-		tmpKeyFile.Close()
-		os.Remove(tmpKey) // Remove empty file so NewService generates key
-
-		return tmpDB, tmpKey
+		// Use the copies in test_output even for temp paths to satisfy "use real for reading"
+		return testSecretsDB, testSecretKey
 	}
 
-	// Try to load config.hcl
-	cfg, err := config.LoadConfig("../../config.hcl")
-	if err == nil {
-		// Fix relative paths if needed
-		db := cfg.UserSecretsDB
-		if !filepath.IsAbs(db) {
-			db = filepath.Join("../..", db)
-		}
-		// Ensure directory exists
-		os.MkdirAll(filepath.Dir(db), 0755)
-
-		key := cfg.SecretKey
-		if !filepath.IsAbs(key) {
-			key = filepath.Join("../..", key)
-		}
-		return db, key
-	}
-
-	// Fallback if config load fails
-	return "../../user_secrets.db", "../../.secret.key"
+	// Fallback
+	return testSecretsDB, testSecretKey
 }
 
 // Type: Use Case Test

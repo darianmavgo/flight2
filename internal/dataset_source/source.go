@@ -1,4 +1,4 @@
-package source
+package dataset_source
 
 import (
 	"context"

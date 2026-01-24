@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"flight2/internal/source"
+	"flight2/internal/dataset_source"
 
 	"github.com/darianmavgo/mksqlite/converters/common"
 
@@ -22,9 +22,20 @@ import (
 	_ "github.com/darianmavgo/mksqlite/converters/all"
 )
 
-var supportedExtensions = []string{
-	".csv", ".xlsx", ".xls", ".zip", ".html", ".htm", ".json", ".txt",
-	".db", ".sqlite", ".sqlite3",
+var extensionMap = map[string]string{
+	".csv":      "csv",
+	".xlsx":     "excel",
+	".xls":      "excel",
+	".zip":      "zip",
+	".html":     "html",
+	".htm":      "html",
+	".json":     "json",
+	".txt":      "txt",
+	".md":       "markdown",
+	".markdown": "markdown",
+	".db":       "sqlite",
+	".sqlite":   "sqlite",
+	".sqlite3":  "sqlite",
 }
 
 type Manager struct {
@@ -58,7 +69,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 	// If type is local, try to resolve extension if file not found
 	if t, ok := creds["type"].(string); ok && t == "local" {
 		if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-			for _, ext := range supportedExtensions {
+			for ext := range extensionMap {
 				p := sourcePath + ext
 				if info, err := os.Stat(p); err == nil && !info.IsDir() {
 					sourcePath = p
@@ -150,7 +161,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 		}
 	} else {
 		// Fetch source stream
-		rc, err := source.GetFileStream(ctx, sourcePath, creds)
+		rc, err := dataset_source.GetFileStream(ctx, sourcePath, creds)
 		if err != nil {
 			tmpOut.Close()
 			os.Remove(tmpOutName)
@@ -158,7 +169,13 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 		}
 		defer rc.Close()
 
+		// Determine driver and check if it's SQLite
 		ext := strings.ToLower(filepath.Ext(sourcePath))
+		driver := extensionMap[ext]
+		if driver == "" {
+			// Fallback: try using the extension themselves as the driver name
+			driver = strings.TrimPrefix(ext, ".")
+		}
 
 		tmpSource, err := os.CreateTemp(m.cacheDir, "flight2_source_*"+ext)
 		if err != nil {
@@ -177,8 +194,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			return "", fmt.Errorf("failed to write source temp file: %w", err)
 		}
 
-		// Check if it's already sqlite
-		if ext == ".db" || ext == ".sqlite" || ext == ".sqlite3" {
+		if driver == "sqlite" {
 			// Just copy source to output
 			srcF, err := os.Open(tmpSourceName)
 			if err != nil {
@@ -196,13 +212,6 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			}
 		} else {
 			// Convert
-			driver := getDriver(ext)
-			if driver == "" {
-				tmpOut.Close()
-				os.Remove(tmpOutName)
-				return "", fmt.Errorf("unsupported file type: %s", ext)
-			}
-
 			srcF, err := os.Open(tmpSourceName)
 			if err != nil {
 				tmpOut.Close()
@@ -215,7 +224,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 				srcF.Close()
 				tmpOut.Close()
 				os.Remove(tmpOutName)
-				return "", fmt.Errorf("failed to open converter for %s: %w", driver, err)
+				return "", fmt.Errorf("failed to open converter for %s (ext: %s): %w", driver, ext, err)
 			}
 
 			// Handle Closer interface for converter
@@ -228,7 +237,7 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 			if err != nil {
 				tmpOut.Close()
 				os.Remove(tmpOutName)
-				return "", fmt.Errorf("conversion failed: %w", err)
+				return "", fmt.Errorf("conversion failed for %s: %w", driver, err)
 			}
 		}
 	}
@@ -257,24 +266,6 @@ func (m *Manager) GetSQLiteDB(ctx context.Context, sourcePath string, creds map[
 	}
 
 	return tmpOutName, nil
-}
-
-func getDriver(ext string) string {
-	switch ext {
-	case ".csv":
-		return "csv"
-	case ".xlsx", ".xls":
-		return "excel"
-	case ".zip":
-		return "zip"
-	case ".html", ".htm":
-		return "html"
-	case ".json":
-		return "json"
-	case ".txt":
-		return "txt"
-	}
-	return ""
 }
 
 func (m *Manager) writeTempFile(data []byte) (string, error) {

@@ -16,7 +16,7 @@ Flight2 is a high-performance web application designed for browsing and querying
 Flight2 is built with a modular architecture:
 
 *   **`internal/secrets`**: Manages user credentials securely. It encrypts sensitive data (like API keys) before storing them in a local SQLite database (`secrets.db`).
-*   **`internal/source`**: leverages `rclone` to fetch file streams from configured cloud backends dynamically.
+*   **`internal/dataset_source`**: leverages `rclone` to fetch file streams from configured cloud backends dynamically.
 *   **`internal/dataset`**: Orchestrates data retrieval and conversion. It checks the in-memory cache (`BigCache`) for existing SQLite databases. If not found, it fetches the source file, converts it to SQLite (if necessary), and caches the result.
 *   **`internal/server`**: The web server that handles requests. It parses "Banquet" URLs to determine the data source and query, retrieves the appropriate credentials, and streams the query results to the user.
 
@@ -95,7 +95,7 @@ go test ./...
 *   `internal/dataset`: Data conversion and caching logic.
 *   `internal/secrets`: Encryption and credential storage.
 *   `internal/server`: HTTP handlers and routing.
-*   `internal/source`: Rclone integration.
+*   `internal/dataset_source`: Rclone integration.
 *   `templates`: HTML templates for the UI.
 
 ## License

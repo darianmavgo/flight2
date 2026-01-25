@@ -358,7 +358,6 @@ func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request
 
 	cols, _ := rows.Columns()
 
-	s.tw.StartTableList(w, "Query Result")
 	s.tw.StartHTMLTable(w, cols, "Test Table")
 
 	rowData := make([]interface{}, len(cols))
@@ -367,6 +366,7 @@ func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request
 		rowPtrs[i] = &rowData[i]
 	}
 
+	rowCounter := 0
 	for rows.Next() {
 		rows.Scan(rowPtrs...)
 		strRow := make([]string, len(cols))
@@ -377,10 +377,10 @@ func (s *TestServerWrapper) handleRequest(w http.ResponseWriter, r *http.Request
 				strRow[i] = fmt.Sprintf("%v", val)
 			}
 		}
-		s.tw.WriteHTMLRow(w, strRow)
+		s.tw.WriteHTMLRow(w, rowCounter, strRow)
+		rowCounter++
 	}
 	s.tw.EndHTMLTable(w)
-	s.tw.EndTableList(w)
 }
 
 func createTestTemplates(dir string) {

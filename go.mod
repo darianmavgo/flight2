@@ -6,7 +6,7 @@ require (
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/darianmavgo/banquet v1.0.4
 	github.com/darianmavgo/mksqlite v1.0.4
-	github.com/darianmavgo/sqliter v1.1.2
+	github.com/darianmavgo/sqliter v1.1.6-0.20260124150642-05a117aeb625
 	github.com/go-rod/rod v0.116.2
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mattn/go-sqlite3 v1.14.33
@@ -202,7 +202,7 @@ require (
 	github.com/ysmood/leakless v0.9.0 // indirect
 	github.com/yunify/qingstor-sdk-go/v3 v3.2.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	github.com/zclconf/go-cty v1.16.3 // indirect
+	github.com/zclconf/go-cty v1.17.0 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
@@ -242,9 +242,3 @@ require (
 	storj.io/picobuf v0.0.4 // indirect
 	storj.io/uplink v1.13.1 // indirect
 )
-
-replace github.com/darianmavgo/banquet => ../banquet
-
-replace github.com/darianmavgo/mksqlite => ../mksqlite
-
-replace github.com/darianmavgo/sqliter => ../sqliter

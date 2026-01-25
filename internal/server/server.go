@@ -22,7 +22,7 @@ import (
 	"flight2/internal/secrets"
 
 	"github.com/darianmavgo/banquet"
-	"github.com/darianmavgo/sqliter/pkg/common"
+	"github.com/darianmavgo/sqliter/common"
 	"github.com/darianmavgo/sqliter/sqliter"
 	_ "github.com/mattn/go-sqlite3"
 
@@ -489,11 +489,17 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 		dbUrlPath = "/" + dbUrlPath
 	}
 
-	s.tableWriter.StartTableList(w, "Flight2 Tables")
-	for _, name := range tables {
-		s.tableWriter.WriteTableLink(w, name, strings.TrimSuffix(dbUrlPath, "/")+"/"+name, "Table")
+	// Use generic table for list of tables
+	headers := []string{"Table Name", "Link"}
+	s.tableWriter.StartHTMLTable(w, headers, "Flight2 Tables")
+
+	for i, name := range tables {
+		link := strings.TrimSuffix(dbUrlPath, "/") + "/" + name
+		// Use raw HTML for link - requires row.html to use 'safe' filter
+		linkHtml := fmt.Sprintf("<a href='%s'>%s</a>", link, name)
+		s.tableWriter.WriteHTMLRow(w, i, []string{linkHtml, "Table"})
 	}
-	s.tableWriter.EndTableList(w)
+	s.tableWriter.EndHTMLTable(w)
 }
 
 func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banquet) {
@@ -521,6 +527,8 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 		valuePtrs[i] = &values[i]
 	}
 
+	rowCounter := 0
+
 	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
 			log.Println("Error scanning row:", err)
@@ -536,7 +544,8 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 			}
 		}
 
-		s.tableWriter.WriteHTMLRow(w, strValues)
+		s.tableWriter.WriteHTMLRow(w, rowCounter, strValues)
+		rowCounter++
 	}
 
 	s.tableWriter.EndHTMLTable(w)
@@ -566,7 +575,20 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.tableWriter.StartTableList(w, "Flight2 Remotes")
+	// Manual Page Header since StartTableList is gone
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight2 Remotes</title>
+<link rel="stylesheet" href="/cssjs/default.css">
+<style>
+/* Add any page-specific overrides here */
+</style>
+</head>
+<body>
+`)
 	fmt.Fprintf(w, `
 		<div class="container">
 			<section class="remotes">
@@ -732,7 +754,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			}
 			return ""
 		}())
-	s.tableWriter.EndTableList(w)
+	fmt.Fprintf(w, "</body></html>")
 }
 
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
@@ -829,7 +851,17 @@ func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias stri
 		return entries[i].Name() < entries[j].Name()
 	})
 
-	s.tableWriter.StartTableList(w, "Browse - "+alias)
+	// Manual Page Header
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browse - %s</title>
+<link rel="stylesheet" href="/cssjs/default.css">
+</head>
+<body>
+`, alias)
 	fmt.Fprintf(w, "<div class='container'>")
 	fmt.Fprintf(w, "<h2>📂 Browsing: %s <span style='color:var(--text-muted); font-size: 0.9rem; margin-left: 0.5rem;'>/%s</span></h2>", alias, relPath)
 
@@ -877,7 +909,7 @@ func (s *Server) listingLogic(w http.ResponseWriter, r *http.Request, alias stri
 
 	s.tableWriter.EndHTMLTable(w)
 	fmt.Fprintf(w, "</div>")
-	s.tableWriter.EndTableList(w)
+	fmt.Fprintf(w, "</body></html>")
 }
 
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {

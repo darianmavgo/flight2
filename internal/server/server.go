@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net"
@@ -34,7 +35,9 @@ import (
 type Server struct {
 	dataManager   *dataset.Manager
 	secrets       *secrets.Service
-	tableWriter   *sqliter.TableWriter
+	tableWriter   *sqliter.TableWriter // Default read-only writer
+	templates     *template.Template
+	sqliterConfig *sqliter.Config
 	serveFolder   string
 	verbose       bool
 	autoSelectTb0 bool
@@ -85,13 +88,15 @@ func (h *RequestHistory) GetRecent() []string {
 
 // NewServer creates a new Server.
 func NewServer(dm *dataset.Manager, ss *secrets.Service, serveFolder string, verbose bool, autoSelectTb0 bool, localOnly bool, defaultDB string) *Server {
-	t := sqliter.GetDefaultTemplates()
+	t := customTemplates()
 	sqliterCfg := sqliter.DefaultConfig()
 	sqliterCfg.Verbose = verbose
 	srv := &Server{
 		dataManager:   dm,
 		secrets:       ss,
 		tableWriter:   sqliter.NewTableWriter(t, sqliterCfg),
+		templates:     t,
+		sqliterConfig: sqliterCfg,
 		serveFolder:   serveFolder,
 		verbose:       verbose,
 		autoSelectTb0: autoSelectTb0,
@@ -130,6 +135,15 @@ func (s *Server) Router() http.Handler {
 	if s.localOnly {
 		return s.localOnlyMiddleware(mux)
 	}
+
+	// Register local DBs
+	s.registerLocalDBRoutes(mux)
+
+	// Serve CSS/JS artifacts - Flight2 expects "cssjs" folder in CWD or relative
+	// We map /cssjs/ to ./cssjs/ or serveFolder/cssjs?
+	// The user created cssjs folder in root (Steps 58-61)
+	mux.Handle("/cssjs/", http.StripPrefix("/cssjs/", http.FileServer(http.Dir("cssjs"))))
+
 	return mux
 }
 
@@ -453,7 +467,7 @@ func (s *Server) serveDatabase(w http.ResponseWriter, r *http.Request, bq *banqu
 	if bq.Table == "sqlite_master" || bq.Table == "" {
 		s.listTables(w, r, db, dbUrlPath)
 	} else {
-		s.queryTable(w, db, bq)
+		s.queryTable(w, db, bq, false)
 	}
 }
 
@@ -502,7 +516,7 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 	s.tableWriter.EndHTMLTable(w)
 }
 
-func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banquet) {
+func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banquet, editable bool) {
 	query := common.ConstructSQL(bq)
 	s.log("Executing query: %s", query)
 
@@ -519,7 +533,15 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 		return
 	}
 
-	s.tableWriter.StartHTMLTable(w, columns, bq.Table)
+	// Determine TableWriter to use
+	tw := s.tableWriter
+	if editable {
+		// Create a new writer for editable mode
+		tw = sqliter.NewTableWriter(s.templates, s.sqliterConfig)
+		tw.EnableEditable(true)
+	}
+
+	tw.StartHTMLTable(w, columns, bq.Table)
 
 	values := make([]interface{}, len(columns))
 	valuePtrs := make([]interface{}, len(columns))
@@ -544,12 +566,138 @@ func (s *Server) queryTable(w http.ResponseWriter, db *sql.DB, bq *banquet.Banqu
 			}
 		}
 
-		s.tableWriter.WriteHTMLRow(w, rowCounter, strValues)
+		tw.WriteHTMLRow(w, rowCounter, strValues)
 		rowCounter++
 	}
 
-	s.tableWriter.EndHTMLTable(w)
+	tw.EndHTMLTable(w)
 	s.log("Finished response")
+}
+
+func (s *Server) handleCRUD(w http.ResponseWriter, r *http.Request, db *sql.DB, bq *banquet.Banquet) {
+	var payload struct {
+		Action string                 `json:"action"`
+		Data   map[string]interface{} `json:"data"`
+		Where  map[string]interface{} `json:"where"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.log("Error decoding JSON: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var query string
+	var args []interface{}
+
+	switch payload.Action {
+	case "create":
+		query, args = common.ConstructInsert(bq.Table, payload.Data)
+	case "update":
+		query, args = common.ConstructUpdate(bq.Table, payload.Data, payload.Where)
+	case "delete":
+		query, args = common.ConstructDelete(bq.Table, payload.Where)
+	default:
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	s.log("Executing CRUD %s: %s", payload.Action, query)
+
+	if _, err := db.Exec(query, args...); err != nil {
+		s.log("Error executing CRUD: %v", err)
+		http.Error(w, fmt.Sprintf("Database error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func (s *Server) registerLocalDBRoutes(mux *http.ServeMux) {
+	root, err := os.Getwd()
+	if err != nil {
+		s.log("Failed to get wd for scanning DBs: %v", err)
+		return
+	}
+
+	s.log("Scanning %s for SQLite databases to serve editable...", root)
+
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") || info.Name() == "vendor" || info.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		name := info.Name()
+		if strings.HasSuffix(name, ".db") || strings.HasSuffix(name, ".sqlite") || strings.HasSuffix(name, ".sqlite3") {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+
+			routePath := "/" + rel
+			// If on Windows, fix slashes? We are on Mac.
+
+			s.log("Registering editable route: %s -> %s", routePath, path)
+
+			mux.HandleFunc(routePath+"/", func(w http.ResponseWriter, r *http.Request) {
+				// Handle specific DB
+				s.handleLocalEditableDB(w, r, path, routePath)
+			})
+
+			// Also handle the file itself (redirect to list?) or just handle it if it ends in /
+			mux.HandleFunc(routePath, func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, routePath+"/", http.StatusFound)
+			})
+		}
+		return nil
+	})
+}
+
+func (s *Server) handleLocalEditableDB(w http.ResponseWriter, r *http.Request, dbPath string, routeBase string) {
+	// Parse banquet from URL, relative to routeBase
+	// routeBase is /path/to/db.sqlite
+	// request might be /path/to/db.sqlite/tablename
+
+	// We need to strip the routeBase to get the banquet path (table name)
+	urlPath := r.URL.Path
+	if !strings.HasPrefix(urlPath, routeBase) {
+		http.NotFound(w, r)
+		return
+	}
+
+	rel := strings.TrimPrefix(urlPath, routeBase)
+	rel = strings.TrimPrefix(rel, "/")
+
+	bq := &banquet.Banquet{
+		DataSetPath: dbPath,
+		Table:       rel,
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		http.Error(w, "Failed to open DB", 500)
+		return
+	}
+	defer db.Close()
+
+	if bq.Table == "" {
+		s.listTables(w, r, db, routeBase)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		s.handleCRUD(w, r, db, bq)
+		return
+	}
+
+	s.queryTable(w, db, bq, true)
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -944,4 +1092,230 @@ func formatSize(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func customTemplates() *template.Template {
+	t := sqliter.GetDefaultTemplates()
+
+	// Debug template names
+	log.Printf("[TEMPLATE DEBUG] Defined templates: %s", t.DefinedTemplates())
+
+	// 1. Override head.html to include external CSS and cleaner structure
+	// We inject /cssjs/default.css for Flight2 styles.
+	headTpl := `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='*.9em' font-size='90'%3E🔥%3C/text%3E%3C/svg%3E" type="image/svg+xml">
+  <title>{{if .Title}}{{.Title}}{{else}}SQLITER{{end}}</title>
+  <!-- DEBUG CONTEXT: {{printf "%+v" .}} -->
+  {{if .Editable}}<meta name="sqliter-editable" content="true">{{end}}
+  <link rel="stylesheet" href="/cssjs/default.css">
+  <style>{{.CSS}}</style>
+</head>
+<body>
+<div class="container-fluid">
+  <table id="table" class="premium-table">
+    <thead>
+      <tr id="edit-bar-row">
+        <th colspan="100%"></th>
+      </tr>
+      <tr>
+        <th class="row-id-header" title="Toggle Edit Mode" style="width: 50px; text-align: center;">✏️</th>
+        {{ range .Headers}}<th data-sortable="true">{{ .}}</th>{{ end}}
+      </tr>
+    </thead>
+    <tbody>`
+
+	// 2. Override foot.html to include FIXED Javascript
+	// We fix the sort event conflict and ensure edit mode works.
+	footTpl := `    </tbody>
+  </table>
+</div>
+<!-- Custom Table Logic -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Initial Title Logic
+    if (document.title === 'SQLITER') {
+        const urlPath = window.location.pathname.replace(/^\/+/, '');
+        document.title = (urlPath.length > 80 ? '...' + urlPath.slice(-77) : urlPath) || 'SQLITER';
+    }
+
+    const getCellValue = (tr, idx) => tr.children[idx].innerText || tr.children[idx].textContent;
+    const comparer = (idx, asc) => (a, b) => ((v1, v2) =>
+        v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+    )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+    // FAILSAFE: Remove any pre-existing listeners if we re-ran this (not common in page load but good practice)
+    // Actually, we are just attaching new ones.
+
+    // Sorting Logic - ONLY on sortable headers
+    document.querySelectorAll('th[data-sortable="true"]').forEach(th => th.addEventListener('click', ((e) => {
+        // Stop if clicking a button inside th (unlikely for sort headers but possible)
+        if (e.target.tagName === 'BUTTON' || e.target.classList.contains('row-id-header')) return;
+        
+        const table = th.closest('table');
+        const tbody = table.querySelector('tbody');
+        Array.from(table.querySelectorAll('th')).forEach(header => {
+            if (header !== th) header.classList.remove('sort-asc', 'sort-desc');
+        });
+        const asc = !th.classList.contains('sort-asc');
+        th.classList.toggle('sort-asc', asc);
+        th.classList.toggle('sort-desc', !asc);
+        Array.from(tbody.querySelectorAll('tr'))
+            .sort(comparer(Array.from(th.parentNode.children).indexOf(th), asc))
+            .forEach(tr => tbody.appendChild(tr));
+    })));
+
+    // Row CRUD Logic
+    const isEditable = document.querySelector('meta[name="sqliter-editable"][content="true"]');
+    if (isEditable) {
+        enableRowCRUD();
+    }
+
+    function enableRowCRUD() {
+        const table = document.querySelector('table');
+        if (!table) return;
+
+        // Edit Mode Toggle (The Pencil)
+        const pencilHeader = document.querySelector('.row-id-header');
+        if (pencilHeader) {
+            pencilHeader.style.cursor = 'pointer';
+            pencilHeader.style.fontSize = '1.2em';
+            pencilHeader.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // CRITICAL: Prevent bubbling to any sort listeners
+                toggleEditMode();
+            });
+        }
+
+        // Add "Add Row" button
+        const editBarCell = document.querySelector('#edit-bar-row th');
+        let addBtn = document.getElementById('addRowBtn');
+        if (!addBtn) {
+            addBtn = document.createElement('button');
+            addBtn.id = 'addRowBtn';
+            addBtn.innerText = 'Add Row';
+            addBtn.className = 'btn btn-primary btn-sm'; // Flight2 styling
+            addBtn.style.display = 'none';
+            if (editBarCell) editBarCell.appendChild(addBtn);
+        }
+        addBtn.addEventListener('click', handleCreate);
+
+        // Cell Editing
+        table.querySelectorAll('tbody td').forEach(td => {
+            if (td.classList.contains('row-id')) return;
+            td.dataset.original = td.innerText;
+            td.addEventListener('blur', function () {
+                const newValue = this.innerText;
+                const originalValue = this.dataset.original;
+                if (newValue !== originalValue) {
+                    handleUpdate(this, newValue);
+                }
+            });
+            td.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.blur();
+                }
+            });
+        });
+
+        // Delete (Context Menu)
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.addEventListener('contextmenu', function (e) {
+                if (document.body.classList.contains('edit-mode')) {
+                    e.preventDefault();
+                    if (confirm('Delete this row?')) handleDelete(this);
+                }
+            });
+        });
+    }
+
+    function toggleEditMode() {
+        document.body.classList.toggle('edit-mode');
+        const isEditing = document.body.classList.contains('edit-mode');
+        const table = document.querySelector('table');
+        table.querySelectorAll('tbody td').forEach(td => {
+            if (td.classList.contains('row-id')) return;
+            td.contentEditable = isEditing;
+        });
+        const addBtn = document.getElementById('addRowBtn');
+        if (addBtn) addBtn.style.display = isEditing ? 'inline-block' : 'none';
+        
+        // Visual feedback for pencil
+        const pencil = document.querySelector('.row-id-header');
+        if(pencil) pencil.style.filter = isEditing ? 'grayscale(0%)' : 'grayscale(100%)';
+    }
+
+    function getRowData(tr) {
+        const headers = Array.from(tr.closest('table').querySelectorAll('thead th:not(.row-id-header)')).map(th => th.innerText);
+        // data columns start at index 1 because index 0 is row-id (pencil)
+        const cells = Array.from(tr.children);
+        const data = {};
+        // Shift cells by 1 since 0 is row-id
+        headers.forEach((h, i) => {
+            const cell = cells[i+1]; 
+            if (cell) data[h] = cell.dataset.original || cell.innerText;
+        });
+        return data;
+    }
+
+    function handleUpdate(td, newValue) {
+        const tr = td.parentElement;
+        const headers = Array.from(tr.closest('table').querySelectorAll('thead th:not(.row-id-header)')).map(th => th.innerText);
+        // cellIndex 0 is row-id, so real index is cellIndex - 1
+        const cellIndex = Array.from(tr.children).indexOf(td) - 1;
+        if(cellIndex < 0) return; // Should not happen for editable cells
+        
+        const columnName = headers[cellIndex];
+        const where = getRowData(tr);
+        
+        // Correct the WHERE clause to use ORIGINAL value for the changing col
+        where[columnName] = td.dataset.original; 
+
+        const data = { [columnName]: newValue };
+
+        sendCRUD('update', { data, where }).then(() => {
+            td.dataset.original = newValue;
+            td.classList.add('updated-success');
+            setTimeout(() => td.classList.remove('updated-success'), 1000);
+        }).catch(err => {
+            console.error(err);
+            td.innerText = td.dataset.original;
+            td.classList.add('updated-error');
+            setTimeout(() => td.classList.remove('updated-error'), 1000);
+        });
+    }
+
+    function handleDelete(tr) {
+        const where = getRowData(tr);
+        sendCRUD('delete', { where }).then(() => tr.remove()).catch(console.error);
+    }
+
+    function handleCreate() {
+        const table = document.querySelector('table');
+        const headers = Array.from(table.querySelectorAll('thead th:not(.row-id-header)')).map(th => th.innerText);
+        const data = {};
+        headers.forEach(h => data[h] = "");
+        sendCRUD('create', { data }).then(() => location.reload()).catch(console.error);
+    }
+
+    function sendCRUD(action, payload) {
+        return fetch(window.location.href, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action, ...payload })
+        }).then(r => { if(!r.ok) throw new Error(r.statusText); return r.json(); });
+    }
+});
+</script>
+</body>
+</html>`
+
+	// Parse custom templates overwriting default named templates
+	t.New("head.html").Parse(headTpl)
+	t.New("foot.html").Parse(footTpl)
+	return t
 }

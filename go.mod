@@ -9,7 +9,7 @@ require (
 	github.com/darianmavgo/sqliter v1.1.7
 	github.com/go-rod/rod v0.116.2
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/mattn/go-sqlite3 v1.14.33
+	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/rclone/rclone v1.72.1
 )
 

@@ -10,7 +10,7 @@ require (
 	github.com/go-rod/rod v0.116.2
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mattn/go-sqlite3 v1.14.33
-	github.com/rclone/rclone v1.72.1
+	github.com/rclone/rclone v1.73.1
 )
 
 require (
@@ -24,6 +24,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azfile v1.5.4 // indirect
 	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
+	github.com/FilenCloudDienste/filen-sdk-go v0.0.37 // indirect
 	github.com/Files-com/files-sdk-go/v3 v3.3.32 // indirect
 	github.com/IBM/go-sdk-core/v5 v5.21.2 // indirect
 	github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd // indirect
@@ -85,6 +86,7 @@ require (
 	github.com/cronokirby/saferith v0.33.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/diskfs/go-diskfs v1.7.0 // indirect
+	github.com/dromara/dongle v1.0.1 // indirect
 	github.com/dropbox/dropbox-sdk-go-unofficial/v6 v6.0.5 // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/emersion/go-message v0.18.2 // indirect
@@ -94,7 +96,7 @@ require (
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/geoffgarside/ber v1.2.0 // indirect
-	github.com/go-chi/chi/v5 v5.2.4 // indirect
+	github.com/go-chi/chi/v5 v5.2.5 // indirect
 	github.com/go-darwin/apfs v0.0.0-20211011131704-f84b94dbf348 // indirect
 	github.com/go-git/go-billy/v5 v5.7.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -123,8 +125,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
-	github.com/henrybear327/Proton-API-Bridge v1.0.0 // indirect
-	github.com/henrybear327/go-proton-api v1.0.0 // indirect
+	github.com/internxt/rclone-adapter v0.0.0-20260213125353-6f59c89fcb7c // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
@@ -171,6 +172,8 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/putdotio/go-putio/putio v0.0.0-20200123120452-16d982cac2b8 // indirect
+	github.com/rclone/Proton-API-Bridge v1.0.1-0.20260127174007-77f974840d11 // indirect
+	github.com/rclone/go-proton-api v1.0.1-0.20260127173028-eb465cac3b18 // indirect
 	github.com/relvacode/iso8601 v1.7.0 // indirect
 	github.com/rfjakob/eme v1.1.2 // indirect
 	github.com/richardlehane/mscfb v1.0.6 // indirect
@@ -188,6 +191,7 @@ require (
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
+	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
@@ -216,6 +220,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
+	golang.org/x/image v0.32.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
